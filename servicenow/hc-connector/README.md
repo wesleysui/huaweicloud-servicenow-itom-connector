@@ -150,10 +150,14 @@ native forms + a UI Action, no custom GlideAjax/Jelly setup pages:
   the same two orchestrators without anyone having to remember to click.
   **Real-PDI verified** (two `Execute Now` runs, 3 `HC Discovery Run` rows
   each, no failures). See `scheduled-jobs/README.md`.
-- Application/Update Set packaging: **capture + export done and real-PDI
-  confirmed** (161-record Update Set XML at
-  `dist/hc-itom-connector-update-set.xml`); import into a second instance
-  and reverify is the remaining step — see `docs/PACKAGING.md`.
+- **One-click distribution — plan decided, not yet executed.** Store
+  publish is blocked on this developer instance, and Local Update Set
+  packaging was proven not viable for installing on an unrelated account
+  (the app's own scope definition isn't Update-Set-trackable). The plan is
+  Studio's **Application Repository Mode**, deferred until the app is
+  feature-complete (converting locks the source instance out of further
+  Studio development for it). See `docs/ARCHITECTURE.md`'s "Setup
+  automation & distribution packaging" section.
 
 ## What Phase 1 delivers (the scaffold Phase 2A builds on)
 
@@ -222,7 +226,6 @@ servicenow/hc-connector/
 │                              #  VPC+Subnet) - sibling orchestrators, no shared base class between them
 ├── ui-actions/                # hc_cloud_account_run_sync_now.js - the "Run Sync Now" UI Action script
 ├── scheduled-jobs/           # hc_connector_scheduled_sync.js - the periodic-sync counterpart to the button
-├── dist/                     # hc-itom-connector-update-set.xml - the real, exported Update Set (see docs/PACKAGING.md)
 ├── event-management/         # empty - Phase 5 (gateway reference design)
 └── provisioning/             # empty - Phase 6 (CPG catalog expansion)
 ```
@@ -261,14 +264,16 @@ node servicenow/hc-connector/scripts/check-mirror-drift.js          # 3 mirrored
 - No new resource-type discovery (VPC/EVS/EIP/etc.) — that's Phase 2B.
 - No `hc_connector_operator` role — deliberately deferred, see
   `docs/PERMISSIONS.md`.
-- **Application/Update Set packaging: capture + export done, real-PDI
-  confirmed; import into a second instance and reverify is the remaining
-  step** — see `docs/PACKAGING.md`.
-- ~~`scheduled-jobs/hc_connector_scheduled_sync.js` not yet real-PDI
-  verified~~ — **real-PDI verified**. Intentionally not part of the
-  exported Update Set XML: ServiceNow does not capture Scheduled Script
-  Executions into Update Sets at all (confirmed empirically), so it ships
-  as a manual `docs/INSTALL.md` Step 9 instead — no re-export needed.
+- **No one-click distribution yet** — Store publish requires ServiceNow
+  Technology Partner Program (TPP) enrollment, not available to an
+  individual developer instance; Local Update Set packaging doesn't work
+  for installing on an unrelated account either (confirmed: the app's own
+  scope definition isn't Update-Set-trackable). Plan: Application
+  Repository Mode, once feature-complete — see `docs/ARCHITECTURE.md`.
+- `scheduled-jobs/hc_connector_scheduled_sync.js` — **real-PDI verified**,
+  ships as a manual `docs/INSTALL.md` step regardless of how the rest of
+  the app eventually gets distributed (ServiceNow doesn't track Scheduled
+  Script Executions via any packaging mechanism).
 
 See [`docs/RESOURCE-MATRIX.md`](docs/RESOURCE-MATRIX.md) for the full
 picture.

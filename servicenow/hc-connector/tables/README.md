@@ -9,11 +9,11 @@ table. Two build tools consume it (see `../scripts/`):
   script (paste once into Background Scripts, **Global** scope) that creates
   the table (`sys_db_object`) and its columns (`sys_dictionary`) if missing.
 
-Neither of these is a real Update Set XML export — this project's rule
-(established for Discovery/Event Management) is to never fabricate one.
-**The provisioning script is unverified against a real PDI** until tested
-interactively — treat the generated Markdown doc as the guaranteed path,
-the script as a time-saving attempt on top of it.
+Neither of these is a real platform export — this project's rule
+(established for Discovery/Event Management) is to never fabricate one by
+hand. **The provisioning script is unverified against a real PDI** until
+tested interactively — treat the generated Markdown doc as the guaranteed
+path, the script as a time-saving attempt on top of it.
 
 ## Schema field format
 

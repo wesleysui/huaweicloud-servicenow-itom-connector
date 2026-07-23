@@ -181,8 +181,7 @@ discovers. Prompted by an explicit design goal: automated usability for
 someone consuming this project from GitHub, not just readability, following
 mainstream cloud-vendor ServiceNow connector practice (a packaged
 Application via the platform's own install/clone mechanism, paired with
-native-form-based post-install configuration — never a hand-typed
-Update Set XML, per this project's standing rule).
+native-form-based post-install configuration).
 
 - **Setup automation via native forms + a UI Action** (source-complete and
   real-PDI verified), matching how mature cloud-vendor ServiceNow
@@ -199,14 +198,36 @@ Update Set XML, per this project's standing rule).
   shows the result via `gs.addInfoMessage()`. A periodic counterpart,
   `scheduled-jobs/hc_connector_scheduled_sync.js` (a Scheduled Script
   Execution running the same two orchestrators without a manual click), is
-  **source-complete and real-PDI verified**, and intentionally outside the
-  Update Set (ServiceNow does not track Scheduled Script Executions in
-  Update Sets), shipping instead as a manual `docs/INSTALL.md` Step 9.
-- **Application/Update Set packaging** — capture + export done and
-  real-PDI confirmed (161-record Update Set XML at
-  `dist/hc-itom-connector-update-set.xml`); import into a second clean
-  instance and post-import reverification is the remaining step. See
-  `docs/PACKAGING.md` for the procedure and results log.
+  **source-complete and real-PDI verified**, and ships independently as a
+  manual `docs/INSTALL.md` Step 9 (ServiceNow does not track Scheduled
+  Script Executions via any of the packaging mechanisms below).
+- **Distribution/packaging — plan decided, not yet executed.** The goal is
+  a one-click install for a completely unrelated ServiceNow account, not
+  just moving changes within one org. Three mechanisms were evaluated on
+  the real PDI:
+  - **ServiceNow Store publish** — blocked; Store/Internal publishing
+    requires enrollment in ServiceNow's Technology Partner Program (TPP),
+    which an individual developer instance isn't part of. Not a
+    configuration issue — this path is closed for a personal project by
+    design.
+  - **Local Update Set (capture + Export to XML)** — proven not viable for
+    this goal: real-PDI testing confirmed `sys_scope` (the application's
+    own scope-definition record) is structurally excluded from Update Set
+    capture, the same way `sysauto_script` is (see the Setup automation
+    bullet above) — no amount of re-capturing gets a brand-new app's scope
+    definition into an importable XML. Update Sets remain fine for their
+    original purpose (moving changes between instances that already share
+    the same app scope), just not for this project's actual goal.
+  - **Convert to Application Repository Mode** (Studio's Git-backed app
+    repository) — confirmed technically capable of what's needed (an
+    installable, Git-hosted package independent of the target's account),
+    but converting locks the *source* instance out of further Studio
+    development for that app and clears its Customer Updates. **Decision:
+    finish all remaining planned resource-coverage phases first, then
+    convert once the app is feature-complete** — converting mid-development
+    would block exactly the iteration this project still needs. The target
+    repository (`huaweicloud-servicenow-itom-connector-app`, currently
+    private) already exists; the conversion itself is deferred.
 
 ## Security model (target, Phase 1 partial)
 

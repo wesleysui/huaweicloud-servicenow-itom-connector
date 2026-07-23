@@ -739,6 +739,6 @@ the table's short name `hc_discovery_run` only resolves inside the app's
 own Application Scope — querying from Global scope (e.g. in Background
 Scripts) needs the fully-qualified name
 `x_2021019_huawei_0_hc_discovery_run` instead. Also confirmed ServiceNow
-does not capture Scheduled Script Executions into Update Sets at all (see
-`docs/PACKAGING.md`), so this job intentionally ships as this manual step
-rather than inside the exported XML.
+does not capture Scheduled Script Executions into Update Sets at all, so
+this job ships as this manual step, independent of however the rest of
+the app gets distributed.

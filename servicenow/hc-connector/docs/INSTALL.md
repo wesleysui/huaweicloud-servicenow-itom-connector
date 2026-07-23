@@ -3,9 +3,11 @@
 Every step is labeled:
 
 - 🤖 **Automatable** — a script you run once, no manual UI work.
-- 📦 **Needs instance import** — none anywhere in this project yet (no
-  Update Set exists or is fabricated — see the project-wide rule against
-  faking XML exports).
+- 📦 **Needs instance import** — none anywhere in this project yet. A
+  one-click install is planned via ServiceNow's Application Repository
+  (Git-backed), once the app is feature-complete — see
+  `docs/ARCHITECTURE.md`'s "Setup automation & distribution packaging"
+  section.
 - 🧑‍💻 **Needs manual admin config** — a human clicking through the
   ServiceNow UI; unavoidable or safer than the automated alternative.
 
@@ -202,6 +204,6 @@ EVS/EIP were split out of the original Phase 2B scope specifically because
 they don't have that yet. Its own install guide will extend this one, not
 replace it.
 
-Separately, `docs/PACKAGING.md` covers exporting everything above as a real
-importable Update Set (📦), for installing this connector on a different
-instance without repeating Steps 1–8 by hand.
+Separately, a one-click install for this connector (so a different instance
+doesn't need to repeat Steps 1–8 by hand) is planned via ServiceNow's
+Application Repository — see `docs/ARCHITECTURE.md`.
