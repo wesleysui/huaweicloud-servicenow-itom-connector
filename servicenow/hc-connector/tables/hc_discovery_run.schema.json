@@ -1,0 +1,92 @@
+{
+  "name": "hc_discovery_run",
+  "label": "HC Discovery Run",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per discovery/sync execution (one resource type, one account, one region). Built from lib/discoveryRunTracker.js's pure start/finish/summarize helpers - the ServiceNow-side insert/update is a thin wrapper around that pure logic.",
+  "fields": [
+    {
+      "name": "account",
+      "column_type": "reference",
+      "reference_table": "x_2021019_huawei_0_hc_cloud_account",
+      "label": "Cloud Account",
+      "mandatory": true
+    },
+    {
+      "name": "region",
+      "column_type": "reference",
+      "reference_table": "x_2021019_huawei_0_hc_cloud_region",
+      "label": "Cloud Region",
+      "mandatory": true
+    },
+    {
+      "name": "resource_type",
+      "column_type": "string",
+      "max_length": 60,
+      "label": "Resource Type",
+      "mandatory": true
+    },
+    {
+      "name": "state",
+      "column_type": "choice",
+      "label": "State",
+      "mandatory": true,
+      "default_value": "running",
+      "choices": [
+        { "value": "running", "label": "Running" },
+        { "value": "completed", "label": "Completed" },
+        { "value": "failed", "label": "Failed" }
+      ]
+    },
+    {
+      "name": "started",
+      "column_type": "glide_date_time",
+      "label": "Started",
+      "mandatory": true
+    },
+    {
+      "name": "ended",
+      "column_type": "glide_date_time",
+      "label": "Ended",
+      "mandatory": false
+    },
+    {
+      "name": "success_count",
+      "column_type": "integer",
+      "label": "Success Count",
+      "default_value": 0
+    },
+    {
+      "name": "fail_count",
+      "column_type": "integer",
+      "label": "Fail Count",
+      "default_value": 0
+    },
+    {
+      "name": "error_summary",
+      "column_type": "string",
+      "max_length": 4000,
+      "label": "Error Summary",
+      "mandatory": false
+    },
+    {
+      "name": "correlation_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Correlation ID",
+      "mandatory": false
+    },
+    {
+      "name": "trace_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Trace ID",
+      "mandatory": false
+    },
+    {
+      "name": "dry_run",
+      "column_type": "boolean",
+      "label": "Dry Run",
+      "default_value": false
+    }
+  ]
+}

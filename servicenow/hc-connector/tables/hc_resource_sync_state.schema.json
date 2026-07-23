@@ -1,0 +1,68 @@
+{
+  "name": "hc_resource_sync_state",
+  "label": "HC Resource Sync State",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per (account, region, resource_type, native_key) - tracks whether a resource was seen in the most recent sync, driving the pending_retire -> retired lifecycle implemented as pure logic in lib/resourceLifecycle.js.",
+  "unique_together": [["account", "region", "resource_type", "native_key"]],
+  "fields": [
+    {
+      "name": "account",
+      "column_type": "reference",
+      "reference_table": "x_2021019_huawei_0_hc_cloud_account",
+      "label": "Cloud Account",
+      "mandatory": true
+    },
+    {
+      "name": "region",
+      "column_type": "reference",
+      "reference_table": "x_2021019_huawei_0_hc_cloud_region",
+      "label": "Cloud Region",
+      "mandatory": true
+    },
+    {
+      "name": "resource_type",
+      "column_type": "string",
+      "max_length": 60,
+      "label": "Resource Type",
+      "mandatory": true
+    },
+    {
+      "name": "native_key",
+      "column_type": "string",
+      "max_length": 255,
+      "label": "Source Native Key",
+      "mandatory": true
+    },
+    {
+      "name": "ci",
+      "column_type": "reference",
+      "reference_table": "cmdb_ci",
+      "label": "CI",
+      "mandatory": false
+    },
+    {
+      "name": "last_seen",
+      "column_type": "glide_date_time",
+      "label": "Last Seen",
+      "mandatory": true
+    },
+    {
+      "name": "consecutive_miss_count",
+      "column_type": "integer",
+      "label": "Consecutive Miss Count",
+      "default_value": 0
+    },
+    {
+      "name": "status",
+      "column_type": "choice",
+      "label": "Status",
+      "mandatory": true,
+      "default_value": "active",
+      "choices": [
+        { "value": "active", "label": "Active" },
+        { "value": "pending_retire", "label": "Pending Retire" },
+        { "value": "retired", "label": "Retired" }
+      ]
+    }
+  ]
+}

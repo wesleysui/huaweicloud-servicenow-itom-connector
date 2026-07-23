@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "className": "cmdb_ci_vm_instance",
+      "values": {
+        "name": "web-prod-01",
+        "correlation_id": "6dd5387c-5f01-4a37-965d-ceed07394913",
+        "object_id": "6dd5387c-5f01-4a37-965d-ceed07394913",
+        "ip_address": "192.168.10.15",
+        "operational_status": "1",
+        "location": "cn-north-4a",
+        "short_description": "Huawei Cloud ECS - discovered via custom REST integration",
+        "discovery_source": "Huawei Cloud Custom Discovery"
+      }
+    }
+  ]
+}

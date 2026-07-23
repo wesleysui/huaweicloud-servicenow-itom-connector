@@ -1,0 +1,11 @@
+{
+  "type": "SubscriptionConfirmation",
+  "message_id": "54bb04eddfc842e9b44ca36393f77cd3",
+  "topic_urn": "urn:smn:af-south-1:00000000000000000000000000:huawei-cloud-itom-alarms",
+  "signature_version": "v1",
+  "signature": "base64-encoded-signature-placeholder",
+  "message": "You are invited to subscribe to topic: urn:smn:af-south-1:00000000000000000000000000:huawei-cloud-itom-alarms. To confirm subscription, visit subscribe_url.",
+  "subscribe_url": "https://console.huaweicloud.com/smn/subscription/confirm?token=placeholder&topic_urn=placeholder&region=af-south-1",
+  "signing_cert_url": "https://smn.af-south-1.myhuaweicloud.com/smn/SMN_af-south-1_placeholder.pem",
+  "timestamp": "2026-07-20T09:40:00Z"
+}

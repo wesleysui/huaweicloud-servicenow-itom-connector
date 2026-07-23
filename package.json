@@ -1,0 +1,13 @@
+{
+  "name": "huaweicloud-servicenow-itom-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference implementation for integrating Huawei Cloud with ServiceNow ITOM (Provisioning, Discovery, Event Management)",
+  "scripts": {
+    "pretest": "node servicenow/hc-connector/scripts/check-mirror-drift.js",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

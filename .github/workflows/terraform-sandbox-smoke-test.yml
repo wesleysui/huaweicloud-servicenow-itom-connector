@@ -1,0 +1,81 @@
+name: Terraform Sandbox Smoke Test (manual, real cloud)
+
+# Deliberately workflow_dispatch ONLY — this creates and destroys a REAL
+# resource in a REAL Huawei Cloud account. It must never run on push/PR.
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Huawei Cloud region of your SANDBOX project (never production)'
+        required: true
+        default: 'cn-north-4'
+      az:
+        description: 'Availability zone'
+        required: true
+        default: 'cn-north-4a'
+      image_id:
+        description: 'Sandbox image id to boot the smoke-test ECS from'
+        required: true
+      confirm:
+        description: 'Type APPLY to confirm: this will create and then destroy a real ECS instance'
+        required: true
+
+concurrency:
+  group: terraform-sandbox-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    if: github.event.inputs.confirm == 'APPLY'
+    runs-on: ubuntu-latest
+    # Recommended: configure this as a GitHub Environment with required
+    # reviewers, so someone has to approve before secrets are exposed to the
+    # run — see CONTRIBUTING.md.
+    environment: huaweicloud-sandbox
+    env:
+      HW_ACCESS_KEY: ${{ secrets.HW_ACCESS_KEY }}
+      HW_SECRET_KEY: ${{ secrets.HW_SECRET_KEY }}
+      TF_VAR_region: ${{ github.event.inputs.region }}
+      TF_VAR_az: ${{ github.event.inputs.az }}
+      TF_VAR_image_id: ${{ github.event.inputs.image_id }}
+      TF_VAR_instance_name: ci-smoke-${{ github.run_id }}
+      TF_VAR_admin_pass: ${{ secrets.HW_SMOKE_TEST_ADMIN_PASS }}
+      TF_VAR_sn_request_number: github-actions-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required secrets are configured
+        run: |
+          missing=()
+          [ -z "$HW_ACCESS_KEY" ] && missing+=("HW_ACCESS_KEY")
+          [ -z "$HW_SECRET_KEY" ] && missing+=("HW_SECRET_KEY")
+          [ -z "$TF_VAR_admin_pass" ] && missing+=("HW_SMOKE_TEST_ADMIN_PASS")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]} (see CONTRIBUTING.md)"
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.7.5'
+
+      - name: terraform init
+        working-directory: terraform
+        run: terraform init
+
+      - name: terraform apply (creates a real ECS instance in your sandbox)
+        working-directory: terraform
+        run: terraform apply -auto-approve
+
+      - name: terraform destroy (always runs, even if apply above failed partway)
+        if: always()
+        working-directory: terraform
+        run: terraform destroy -auto-approve
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Terraform sandbox smoke test" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Instance name: \`${TF_VAR_instance_name}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Region/AZ: \`${TF_VAR_region}\` / \`${TF_VAR_az}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Apply + destroy both ran; check the steps above for pass/fail." >> "$GITHUB_STEP_SUMMARY"

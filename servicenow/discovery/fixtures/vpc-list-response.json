@@ -1,0 +1,14 @@
+{
+  "vpcs": [
+    {
+      "id": "d1234abc-e567-89f0-1234-56789abcdef0",
+      "name": "vpc-prod",
+      "cidr": "192.168.0.0/16",
+      "status": "OK"
+    }
+  ],
+  "page_info": {
+    "next_marker": null,
+    "current_count": 1
+  }
+}

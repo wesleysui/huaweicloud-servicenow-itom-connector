@@ -1,0 +1,43 @@
+{
+  "name": "hc_connector_config",
+  "label": "HC Connector Config",
+  "scope": "x_2021019_huawei_0",
+  "description": "Connector-wide key/value settings not tied to a specific account/region (e.g. default consecutive-miss threshold for retirement, gateway enablement toggle). Deliberately a flat key/value table rather than a System Property list, so settings are visible/editable alongside the other HC ITOM Connector tables instead of scattered in sys_properties.",
+  "fields": [
+    {
+      "name": "key",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Key",
+      "mandatory": true,
+      "unique": true
+    },
+    {
+      "name": "value",
+      "column_type": "string",
+      "max_length": 4000,
+      "label": "Value",
+      "mandatory": false
+    },
+    {
+      "name": "description",
+      "column_type": "string",
+      "max_length": 500,
+      "label": "Description",
+      "mandatory": false
+    },
+    {
+      "name": "category",
+      "column_type": "choice",
+      "label": "Category",
+      "mandatory": true,
+      "default_value": "general",
+      "choices": [
+        { "value": "lifecycle", "label": "Lifecycle" },
+        { "value": "gateway", "label": "Gateway" },
+        { "value": "discovery", "label": "Discovery" },
+        { "value": "general", "label": "General" }
+      ]
+    }
+  ]
+}

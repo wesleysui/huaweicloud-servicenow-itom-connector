@@ -1,0 +1,78 @@
+{
+  "name": "hc_event_ingestion_record",
+  "label": "HC Event Ingestion Record",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per inbound event (standard Event Envelope or legacy SMN/CES payload), used for event_id-based idempotent dedup and as an audit trail. raw_payload is sanitized/truncated before storage via lib/payloadSanitizer.js's sanitizePayload() - never stored unbounded, never contains an unmasked secret-looking field.",
+  "fields": [
+    {
+      "name": "event_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Event ID",
+      "mandatory": true,
+      "unique": true
+    },
+    {
+      "name": "source",
+      "column_type": "choice",
+      "label": "Source",
+      "mandatory": true,
+      "choices": [
+        { "value": "cloud_eye", "label": "Cloud Eye" },
+        { "value": "cts", "label": "CTS" },
+        { "value": "config", "label": "Config" },
+        { "value": "smn", "label": "SMN (legacy CES passthrough)" }
+      ]
+    },
+    {
+      "name": "event_type",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Event Type",
+      "mandatory": false
+    },
+    {
+      "name": "occurred_at",
+      "column_type": "glide_date_time",
+      "label": "Occurred At",
+      "mandatory": false
+    },
+    {
+      "name": "dedup_status",
+      "column_type": "choice",
+      "label": "Dedup Status",
+      "mandatory": true,
+      "default_value": "new",
+      "choices": [
+        { "value": "new", "label": "New" },
+        { "value": "duplicate", "label": "Duplicate" }
+      ]
+    },
+    {
+      "name": "raw_payload",
+      "column_type": "string",
+      "max_length": 4000,
+      "label": "Raw Payload (sanitized/truncated)",
+      "mandatory": false
+    },
+    {
+      "name": "processing_result",
+      "column_type": "choice",
+      "label": "Processing Result",
+      "mandatory": true,
+      "default_value": "accepted",
+      "choices": [
+        { "value": "accepted", "label": "Accepted" },
+        { "value": "rejected", "label": "Rejected" },
+        { "value": "error", "label": "Error" }
+      ]
+    },
+    {
+      "name": "correlation_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Correlation ID",
+      "mandatory": false
+    }
+  ]
+}

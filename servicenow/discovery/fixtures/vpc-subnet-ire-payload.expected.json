@@ -1,0 +1,48 @@
+{
+  "items": [
+    {
+      "className": "cmdb_ci_cloud_service_account",
+      "values": {
+        "name": "Huawei Cloud Account - sandbox-1",
+        "account_id": "sandbox-1",
+        "datacenter_type": "cmdb_ci_logical_datacenter",
+        "short_description": "Placeholder representing the Huawei Cloud account for logical-datacenter containment relationships"
+      }
+    },
+    {
+      "className": "cmdb_ci_logical_datacenter",
+      "values": {
+        "name": "Huawei Cloud - af-south-1",
+        "region": "af-south-1",
+        "short_description": "Placeholder representing the Huawei Cloud region for VPC/network containment relationships"
+      }
+    },
+    {
+      "className": "cmdb_ci_network",
+      "values": {
+        "name": "vpc-prod",
+        "correlation_id": "d1234abc-e567-89f0-1234-56789abcdef0",
+        "short_description": "Huawei Cloud VPC - discovered via custom REST integration",
+        "discovery_source": "Huawei Cloud Custom Discovery"
+      }
+    },
+    {
+      "className": "cmdb_ci_cloud_subnet",
+      "values": {
+        "name": "subnet-web",
+        "correlation_id": "9f8e7d6c-5b4a-3210-9876-543210fedcba",
+        "object_id": "9f8e7d6c-5b4a-3210-9876-543210fedcba",
+        "cidr": "192.168.10.0/24",
+        "gateway": "192.168.10.1",
+        "short_description": "Huawei Cloud Subnet - discovered via custom REST integration",
+        "discovery_source": "Huawei Cloud Custom Discovery"
+      }
+    }
+  ],
+  "relations": [
+    { "parent": "1", "child": "0", "type": "Hosted on::Hosts" },
+    { "parent": "2", "child": "1", "type": "Hosted on::Hosts" },
+    { "parent": "2", "child": "3", "type": "Contains::Contained by" }
+  ],
+  "unmatchedSubnetIds": []
+}

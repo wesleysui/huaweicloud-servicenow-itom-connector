@@ -1,0 +1,67 @@
+{
+  "name": "hc_cloud_account",
+  "label": "HC Cloud Account",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per governed Huawei Cloud account. Replaces the current single-account, System-Property-only configuration - every discovery/sync run takes an account (and a region from HC Cloud Region) as explicit input instead of relying on one global set of properties.",
+  "fields": [
+    {
+      "name": "account_id",
+      "column_type": "string",
+      "max_length": 80,
+      "label": "Account ID",
+      "mandatory": true,
+      "unique": true
+    },
+    {
+      "name": "name",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Name",
+      "mandatory": true
+    },
+    {
+      "name": "ou_path",
+      "column_type": "string",
+      "max_length": 255,
+      "label": "Organizations OU Path",
+      "mandatory": false
+    },
+    {
+      "name": "auth_mode",
+      "column_type": "choice",
+      "label": "Auth Mode",
+      "mandatory": true,
+      "default_value": "ak_sk",
+      "choices": [
+        { "value": "ak_sk", "label": "AK/SK (compat mode)" },
+        { "value": "agency", "label": "IAM Agency" }
+      ]
+    },
+    {
+      "name": "default_region",
+      "column_type": "string",
+      "max_length": 40,
+      "label": "Default Region"
+    },
+    {
+      "name": "agency_name",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "IAM Agency Name",
+      "mandatory": false
+    },
+    {
+      "name": "external_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "External ID",
+      "mandatory": false
+    },
+    {
+      "name": "active",
+      "column_type": "boolean",
+      "label": "Active",
+      "default_value": true
+    }
+  ]
+}

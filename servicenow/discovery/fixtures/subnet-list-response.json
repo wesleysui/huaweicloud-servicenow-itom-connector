@@ -1,0 +1,16 @@
+{
+  "subnets": [
+    {
+      "id": "9f8e7d6c-5b4a-3210-9876-543210fedcba",
+      "name": "subnet-web",
+      "cidr": "192.168.10.0/24",
+      "gateway_ip": "192.168.10.1",
+      "vpc_id": "d1234abc-e567-89f0-1234-56789abcdef0",
+      "status": "ACTIVE"
+    }
+  ],
+  "page_info": {
+    "next_marker": null,
+    "current_count": 1
+  }
+}

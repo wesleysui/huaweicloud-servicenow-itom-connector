@@ -1,0 +1,55 @@
+{
+  "name": "hc_cloud_region",
+  "label": "HC Cloud Region",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per region enabled for a given HC Cloud Account. Every discovery/sync run's actual input is (account, region) - never a single global region. project_id is genuinely per-region in Huawei's IAM model (the same account has a different project_id in each region it's enabled in), which is why it lives here and not on HC Cloud Account.",
+  "unique_together": [["account", "region"]],
+  "fields": [
+    {
+      "name": "account",
+      "column_type": "reference",
+      "reference_table": "x_2021019_huawei_0_hc_cloud_account",
+      "label": "Cloud Account",
+      "mandatory": true
+    },
+    {
+      "name": "region",
+      "column_type": "string",
+      "max_length": 40,
+      "label": "Region Code",
+      "mandatory": true
+    },
+    {
+      "name": "project_id",
+      "column_type": "string",
+      "max_length": 80,
+      "label": "Huawei Cloud Project ID",
+      "mandatory": true
+    },
+    {
+      "name": "sync_enabled",
+      "column_type": "boolean",
+      "label": "Sync Enabled",
+      "default_value": true
+    },
+    {
+      "name": "last_success",
+      "column_type": "glide_date_time",
+      "label": "Last Successful Sync",
+      "mandatory": false
+    },
+    {
+      "name": "last_error",
+      "column_type": "string",
+      "max_length": 4000,
+      "label": "Last Error",
+      "mandatory": false
+    },
+    {
+      "name": "active",
+      "column_type": "boolean",
+      "label": "Active",
+      "default_value": true
+    }
+  ]
+}

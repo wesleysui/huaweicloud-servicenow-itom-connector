@@ -1,0 +1,22 @@
+{
+  "count": 1,
+  "servers": [
+    {
+      "id": "6dd5387c-5f01-4a37-965d-ceed07394913",
+      "name": "web-prod-01",
+      "status": "ACTIVE",
+      "flavor": { "id": "s6.large.2", "name": "s6.large.2" },
+      "image": { "id": "37ca2b35-6fc7-47ab-93c7-900324809c5c" },
+      "OS-EXT-AZ:availability_zone": "cn-north-4a",
+      "OS-EXT-SRV-ATTR:hostname": "web-prod-01",
+      "addresses": {
+        "subnet-web": [
+          { "addr": "192.168.10.15", "OS-EXT-IPS:type": "fixed" },
+          { "addr": "121.36.55.20", "OS-EXT-IPS:type": "floating" }
+        ]
+      },
+      "metadata": { "vpc_id": "d1234abc-e567-89f0-1234-56789abcdef0", "os_type": "Linux" },
+      "created": "2026-06-01T02:15:33Z"
+    }
+  ]
+}
