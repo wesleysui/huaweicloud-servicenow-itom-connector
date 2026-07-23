@@ -152,10 +152,44 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      used. HC6–HC10 all confirmed against a real PDI + real Huawei Cloud
      sandbox account. EVS/EIP deliberately excluded from this phase - see
      2C.
-   - **2C (EVS + EIP, not started)** — split out of the original 2B scope
-     specifically because this repo has zero real-API grounding for either
-     (no Terraform resources, no field samples, no sandbox test path).
-     Gets its own detailed plan once that grounding exists.
+   - **2C (EVS + EIP, Discovery not started; Terraform grounding now
+     real-verified)** — originally split out of the original 2B scope for
+     having zero real-API grounding. That gap is now partly closed:
+     `terraform/main.tf` provisions `huaweicloud_evs_volume` (+
+     `huaweicloud_compute_volume_attach`) and `huaweicloud_vpc_eip` (+
+     `huaweicloud_vpc_eip_associate`), **real-PDI verified via a full
+     apply + destroy against the real Huawei Cloud sandbox** (disk
+     created and attached, EIP allocated and bound to the sandbox ECS
+     instance, then both cleanly destroyed). One real gotcha hit:
+     `huaweicloud_vpc_eip` creation failed with `VPC.0301` ("Bandwidth
+     name or share_type is invalid") on `bandwidth.charge_mode =
+     "traffic"`; switching to `"bandwidth"` succeeded on retry. Not
+     isolated with a clean control test (a `terraform apply
+     -refresh-only` for an unrelated pre-existing state drift happened
+     between the failing and succeeding attempts), so treat `"bandwidth"`
+     as the empirically-working config, not a confirmed explanation of
+     why `"traffic"` failed — re-test `"traffic"` in isolation if that
+     billing mode is ever needed. Remaining before Discovery work can
+     start: real field samples (capture actual `describe`/`list` API
+     responses for
+     both resource types) and the Discovery Script Include itself — the
+     Terraform/sandbox-test-path portion of the original blocker is
+     resolved.
+   - **2D (Security Group, not started, real-API-grounded — higher
+     priority than 2C)** — unlike EVS/EIP previously, this repo already
+     has real API grounding: `terraform/main.tf` provisions and attaches
+     a real `huaweicloud_networking_secgroup` (+ rules) to the sandbox
+     ECS instance, and it's the same Huawei VPC API family already
+     integrated in Phase 2B (`HuaweiVpcDiscovery.js`). Natural next
+     discovery target — reuses the existing VPC orchestrator pattern, no
+     new API family to onboard. Candidate CI class and containment
+     relation (likely Security Group → ECS, analogous to the existing
+     Subnet → VPC relation) need confirming against a real PDI before
+     starting. Identified by cross-referencing this project's resource
+     coverage against another Huawei Cloud integration
+     ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server)),
+     which treats Security Group as core VPC-family coverage alongside
+     VPC/Subnet/EIP/route tables/peering.
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods).
 4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3

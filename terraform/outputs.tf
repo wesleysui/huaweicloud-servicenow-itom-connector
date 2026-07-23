@@ -10,3 +10,11 @@ output "ecs_private_ip" {
 output "vpc_id" {
   value = huaweicloud_vpc.catalog_vpc.id
 }
+
+output "evs_volume_id" {
+  value = huaweicloud_evs_volume.catalog_evs.id
+}
+
+output "eip_address" {
+  value = huaweicloud_vpc_eip.catalog_eip.address
+}

@@ -45,3 +45,21 @@ variable "sn_request_number" {
   default     = ""
   description = "ServiceNow RITM number, injected for traceability tagging"
 }
+
+variable "evs_volume_size" {
+  type        = number
+  default     = 10
+  description = "EVS data disk size in GB, attached to the ECS instance"
+}
+
+variable "evs_volume_type" {
+  type        = string
+  default     = "SSD"
+  description = "EVS volume type: SSD, GPSSD, SAS, etc."
+}
+
+variable "eip_bandwidth_size" {
+  type        = number
+  default     = 5
+  description = "EIP bandwidth in Mbit/s (pay-per-traffic, keep small for sandbox cost control)"
+}

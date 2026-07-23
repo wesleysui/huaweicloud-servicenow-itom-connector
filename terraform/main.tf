@@ -66,3 +66,45 @@ resource "huaweicloud_compute_instance" "catalog_ecs" {
     var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
   )
 }
+
+# -------------------------------- Storage (EVS) --------------------------------
+resource "huaweicloud_evs_volume" "catalog_evs" {
+  name              = "${var.instance_name}-evs"
+  volume_type       = var.evs_volume_type
+  size              = var.evs_volume_size
+  availability_zone = var.az
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+resource "huaweicloud_compute_volume_attach" "catalog_evs_attach" {
+  instance_id = huaweicloud_compute_instance.catalog_ecs.id
+  volume_id   = huaweicloud_evs_volume.catalog_evs.id
+}
+
+# ------------------------------ Networking (EIP) --------------------------------
+resource "huaweicloud_vpc_eip" "catalog_eip" {
+  publicip {
+    type = "5_bgp"
+  }
+
+  bandwidth {
+    name        = "${var.instance_name}-eip-bw"
+    size        = var.eip_bandwidth_size
+    share_type  = "PER"
+    charge_mode = "bandwidth"
+  }
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+resource "huaweicloud_vpc_eip_associate" "catalog_eip_associate" {
+  public_ip = huaweicloud_vpc_eip.catalog_eip.address
+  port_id   = huaweicloud_compute_instance.catalog_ecs.network[0].port
+}

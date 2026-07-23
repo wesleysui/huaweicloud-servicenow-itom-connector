@@ -8,8 +8,8 @@ built or verified · ❌ not started · — not applicable.
 | ECS (compute instance) | ✅ verified (`terraform/main.tf`) | ✅ single-account path verified (`servicenow/discovery/`); ✅ multi-account/region path (`HcConnectorEcsSync.js`, Phase 2A) real-PDI verified (HC2/HC3/HC4 directly exercised; HC1/HC5 on lighter evidence) | ✅ verified (`servicenow/event-management/`) — CPU alarms via direct webhook; migrates to the standard Event Envelope + gateway in Phase 5 | ❌ | existing / Phase 2A done |
 | VPC | ✅ verified (part of `terraform/main.tf`) | ✅ real-PDI verified (`HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`, Phase 2B, HC6) — real CI class `cmdb_ci_network` ("Cloud Network"), not `cmdb_ci_vpc`; real CI created and reconciled against the live sandbox VPC | — | ❌ | Phase 2B |
 | Subnet | ✅ verified (part of `terraform/main.tf`) | ✅ real-PDI verified (Phase 2B, HC6) — real CI class `cmdb_ci_cloud_subnet`; real N:M containment relation to its parent VPC confirmed via a real `cmdb_rel_ci` row, not a flat field | — | ❌ | Phase 2B |
-| EVS (disk) | ❌ | ❌ | 🚧 Cloud Eye emits EVS alarms; no ingestion mapping yet | ❌ | Phase 2C (deferred - no real API grounding yet) |
-| EIP | ❌ | ❌ | ❌ | ❌ | Phase 2C (deferred - no real API grounding yet) |
+| EVS (disk) | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_evs_volume` + `huaweicloud_compute_volume_attach`, apply+destroy against real sandbox) | ❌ Discovery not started | 🚧 Cloud Eye emits EVS alarms; no ingestion mapping yet | ❌ | Phase 2C — Terraform grounding done, Discovery pending |
+| EIP | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_vpc_eip` + `huaweicloud_vpc_eip_associate`, apply+destroy against real sandbox) | ❌ Discovery not started | ❌ | ❌ | Phase 2C — Terraform grounding done, Discovery pending |
 | ELB | ❌ | ❌ | ❌ | ❌ | Phase 3 |
 | RDS | ❌ | ❌ | ❌ | ❌ | Phase 3 |
 | OBS (bucket) | ❌ | ❌ (buckets only when built — no per-Object discovery, ever) | ❌ | ❌ | Phase 3 |
