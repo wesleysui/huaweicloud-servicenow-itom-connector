@@ -42,3 +42,7 @@ output "route_table_id" {
 output "peering_connection_id" {
   value = huaweicloud_vpc_peering_connection.catalog_peering.id
 }
+
+output "cce_cluster_id" {
+  value = huaweicloud_cce_cluster.catalog_cce.id
+}

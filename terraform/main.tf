@@ -242,3 +242,43 @@ resource "huaweicloud_vpc_peering_connection" "catalog_peering" {
   vpc_id      = huaweicloud_vpc.catalog_vpc.id
   peer_vpc_id = huaweicloud_vpc.peer_vpc.id
 }
+
+# ------------------------------- Container (CCE) --------------------------------
+# Cluster creation alone typically takes 10-15+ minutes and both the cluster
+# and its node pool are billed continuously (not per-second/apply-and-forget
+# like the resources above) - verify then destroy promptly, don't leave this
+# running.
+resource "huaweicloud_cce_cluster" "catalog_cce" {
+  name                   = "${var.instance_name}-cce"
+  cluster_type           = "VirtualMachine"
+  flavor_id              = var.cce_cluster_flavor
+  vpc_id                 = huaweicloud_vpc.catalog_vpc.id
+  subnet_id              = huaweicloud_vpc_subnet.catalog_subnet.id
+  container_network_type = "overlay_l2"
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+resource "huaweicloud_cce_node_pool" "catalog_cce_nodepool" {
+  cluster_id         = huaweicloud_cce_cluster.catalog_cce.id
+  name               = "${var.instance_name}-cce-pool"
+  os                 = "Huawei Cloud EulerOS 2.0"
+  flavor_id          = var.cce_node_flavor
+  initial_node_count = 1
+  availability_zone  = var.az
+  password           = var.cce_node_password
+  scall_enable       = false
+
+  root_volume {
+    size       = 40
+    volumetype = "SSD"
+  }
+
+  data_volumes {
+    size       = 100
+    volumetype = "SSD"
+  }
+}

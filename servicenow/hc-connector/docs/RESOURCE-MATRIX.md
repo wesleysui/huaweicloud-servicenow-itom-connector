@@ -17,7 +17,7 @@ built or verified · ❌ not started · — not applicable.
 | ELB | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_elb_loadbalancer` + listener + pool + member, apply+destroy against real sandbox, ECS instance registered as backend) | ❌ Discovery not started | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
 | RDS | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_rds_instance`, single-node MySQL 8.0, apply+destroy against real sandbox) | ❌ Discovery not started | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
 | OBS (bucket) | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_obs_bucket`, apply+destroy against real sandbox) | ❌ (buckets only when built — no per-Object discovery, ever) | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
-| CCE (cluster/node/namespace/workload/service/ingress) | ❌ | ❌ | ❌ | ❌ | Phase 3 |
+| CCE (cluster/node/namespace/workload/service/ingress) | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_cce_cluster` + `huaweicloud_cce_node_pool`, apply+destroy against real sandbox) | ❌ Discovery not started | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
 | CCE Pod | ❌ | ❌ (opt-in only, off by default, namespace/label-filtered, excludes kube-system/Jobs/completed Pods, 24h post-termination retirement) | ❌ | ❌ | Phase 4, gated on Phase 3 stability |
 | CTS (audit events) | — | — | ❌ | — | Phase 5 |
 | Config (config-change events) | — | — | ❌ | — | Phase 5 |

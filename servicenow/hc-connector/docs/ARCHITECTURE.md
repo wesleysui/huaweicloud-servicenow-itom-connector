@@ -224,18 +224,31 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      VPC relation) against a real PDI.
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
-   grounding for ELB/RDS/OBS is now real-PDI verified: `terraform/main.tf`
+   grounding for all four is now real-PDI verified: `terraform/main.tf`
    provisions `huaweicloud_elb_loadbalancer` (+ listener/pool/member, the
    sandbox ECS instance registered as backend), `huaweicloud_rds_instance`
-   (single-node MySQL 8.0), and `huaweicloud_obs_bucket`, all confirmed
-   via a full apply + destroy against the real sandbox. One real gotcha
-   hit: the RDS admin password failed Huawei's complexity check (`DBS.
-   280203`, "Weak password") on a first attempt — needs uppercase +
-   lowercase + digit + special character, 8-32 chars, not containing the
-   username. CCE deliberately not attempted yet — full cluster
-   provisioning is a different order of magnitude in creation time and
-   ongoing cost, deferred to its own pass. Discovery work for
-   ELB/RDS/OBS hasn't started; only the provisioning side is verified.
+   (single-node MySQL 8.0), `huaweicloud_obs_bucket`, and
+   `huaweicloud_cce_cluster` (+ `huaweicloud_cce_node_pool`, one node),
+   all confirmed via a full apply + destroy against the real sandbox
+   (CCE took ~6 min for the cluster alone; node pool creation is fast
+   once the OS value is right — see gotcha below). Two real gotchas hit:
+   - The RDS admin password failed Huawei's complexity check (`DBS.
+     280203`, "Weak password") on a first attempt — needs uppercase +
+     lowercase + digit + special character, 8-32 chars, not containing
+     the username.
+   - The CCE node pool's `os` field took **three wrong guesses**
+     (`"EulerOS 2.9"` — the Terraform provider docs' own example value;
+     `"HCE 2.0"`; `"HCE OS"`, the abbreviation shown in the console
+     tooltip) before finding the actual required string via Huawei's
+     official node-OS API docs: **`"Huawei Cloud EulerOS 2.0"`** (the
+     exact console display text, verbatim) — this cluster's
+     auto-selected `cluster_version` (`v1.35`) only supports this one OS
+     for node creation; the provider docs' generic example wasn't valid
+     for this version. Confirmed via the console's own node-creation
+     form, which showed only this one OS as selectable.
+
+   Discovery work for ELB/RDS/OBS/CCE hasn't started; only the
+   provisioning side is verified.
 4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3
    CCE stability and event-driven incremental capability; default off;
    excludes `kube-system`, Jobs/CronJobs, completed Pods; 24h retirement

@@ -98,3 +98,20 @@ variable "peer_vpc_cidr" {
   default     = "172.16.0.0/16"
   description = "CIDR for the second VPC created to demonstrate VPC peering - must not overlap with var.vpc_cidr"
 }
+
+variable "cce_cluster_flavor" {
+  type        = string
+  default     = "cce.s1.small"
+  description = "CCE cluster control-plane flavor - smallest tier by default; confirm availability in your region before applying"
+}
+
+variable "cce_node_flavor" {
+  type        = string
+  description = "ECS flavor id for the CCE worker node (e.g. s6.large.2) - account/region-specific, look up via the console before applying"
+}
+
+variable "cce_node_password" {
+  type        = string
+  sensitive   = true
+  description = "CCE worker node login password - same complexity rules as RDS/ECS (uppercase+lowercase+digit+special char, 8+ chars)"
+}
