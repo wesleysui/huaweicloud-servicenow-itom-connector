@@ -25,7 +25,13 @@
 > Gateway/VPC Peering Discovery are deliberately NOT built** — they're
 > routing config attached to a VPC/Subnet, not standalone discoverable
 > assets under ServiceNow's CMDB CI Class Model; Terraform-only coverage
-> is the intentional end state.
+> is the intentional end state. **Phase 3's first resource type, ELB
+> Discovery, is also real-PDI verified** (`HuaweiElbDiscovery.js`/
+> `HcConnectorElbSync.js`, own API host, `cmdb_ci_cloud_load_balancer`
+> related to a local logical-datacenter placeholder via `Hosted
+> on::Hosts` - not the `vpc_id` field the real payload carries, since the
+> real OOTB rule named the datacenter class specifically; identification
+> keyed on `object_id` via a real working OOTB rule).
 > Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
@@ -264,8 +270,8 @@ Verify the build tools directly:
 ```bash
 node servicenow/hc-connector/scripts/generate-table-docs.js
 node servicenow/hc-connector/scripts/generate-provision-script.js
-node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all three orchestrators' generated output
-node servicenow/hc-connector/scripts/check-mirror-drift.js          # 4 mirrored pairs (3 crypto + 1 severity map)
+node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all four orchestrators' generated output
+node servicenow/hc-connector/scripts/check-mirror-drift.js          # 5 mirrored pairs (4 crypto + 1 severity map)
 ```
 
 ## What's still not included after Phase 2B

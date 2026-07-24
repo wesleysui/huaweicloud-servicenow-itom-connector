@@ -58,6 +58,11 @@ var BUILD_TARGETS = [
     templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorEvsSync.js'),
     outFile: path.join(__dirname, '..', 'docs', 'generated', 'HcConnectorEvsSync.generated.js'),
     modules: SHARED_MODULES
+  },
+  {
+    templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorElbSync.js'),
+    outFile: path.join(__dirname, '..', 'docs', 'generated', 'HcConnectorElbSync.generated.js'),
+    modules: SHARED_MODULES
   }
 ];
 

@@ -1,0 +1,21 @@
+{
+  "loadbalancers": [
+    {
+      "id": "9f6a1c3d-2b4e-4a1f-8c9d-1e2f3a4b5c6d",
+      "name": "sandbox-1-elb",
+      "description": "",
+      "vip_address": "192.168.10.50",
+      "vip_port_id": "3a4b5c6d-7e8f-4a1b-9c0d-1e2f3a4b5c6e",
+      "vpc_id": "0d43fd93-1f2c-4981-86a2-f3d6c37135b6",
+      "provisioning_status": "ACTIVE",
+      "operating_status": "ONLINE",
+      "admin_state_up": true,
+      "listeners": [{ "id": "1a2b3c4d-5e6f-4a1b-8c9d-1e2f3a4b5c6f" }],
+      "pools": [{ "id": "2b3c4d5e-6f7a-4a1b-8c9d-1e2f3a4b5c70" }],
+      "eips": [],
+      "publicips": [],
+      "created_at": "2026-07-24T03:12:45Z",
+      "updated_at": "2026-07-24T03:12:45Z"
+    }
+  ]
+}

@@ -349,8 +349,34 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      for this version. Confirmed via the console's own node-creation
      form, which showed only this one OS as selectable.
 
-   Discovery work for ELB/RDS/OBS/CCE hasn't started; only the
-   provisioning side is verified.
+   **ELB: Discovery real-PDI verified**, the first Phase 3 resource type
+   done. `HuaweiElbDiscovery.js` (own file/host, `elb.{region}.myhuaweicloud.com`,
+   real-PDI confirmed) fetches `GET /v3/{project_id}/elb/loadbalancers`
+   (same marker-pagination shape as VPC/Subnet/Security Group, real-PDI
+   confirmed) and reconciles into `cmdb_ci_cloud_load_balancer`
+   (ServiceNow's standard CMDB class for cloud load balancers, real-PDI
+   confirmed to exist). Two real corrections made during real-PDI testing:
+   1. The real payload's `vpc_id` field looked like an obvious relation
+      target, but the real OOTB containment rule (confirmed via a real
+      `MISSING_DEPENDENCY` error) wants `Hosted on::Hosts` to a
+      `cmdb_ci_logical_datacenter` placeholder instead - the same fallback
+      already proven for VPC/Security Group/EVS. Matches this project's
+      standing rule to let the real error decide rather than guess ahead
+      of it, even when a seemingly-obvious field is sitting right there in
+      the payload.
+   2. `cmdb_ci_cloud_load_balancer` has a real working OOTB Identification
+      Rule ("Cloud LoadBalancer Rule") keyed on `object_id` - a real
+      `MISSING_MATCHING_ATTRIBUTES` error caught this field's initial
+      omission (the same class of oversight already avoided for every
+      other resource type in this project, missed here on the first
+      pass, fixed on the second).
+   Real-PDI verified end to end: `hasError:false`, the load balancer CI
+   and its `Hosted on::Hosts` relation both inserted, confirmed idempotent
+   on a second run (`insertCount:0, refreshCount:1`, all `NO_CHANGE`, no
+   warnings).
+
+   Discovery work for RDS/OBS/CCE hasn't started; only the provisioning
+   side is verified for those three.
 4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3
    CCE stability and event-driven incremental capability; default off;
    excludes `kube-system`, Jobs/CronJobs, completed Pods; 24h retirement
