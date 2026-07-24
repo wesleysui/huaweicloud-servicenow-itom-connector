@@ -153,17 +153,18 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      sandbox account. EVS/EIP deliberately excluded from this phase - see
      2C.
    - **2C (EVS + EIP + Security Group + Route Table + NAT Gateway + VPC
-     Peering, Discovery not started; Terraform grounding real-verified
-     for all six)** — originally split out of the original 2B scope for
-     having zero real-API grounding on EVS/EIP; the other four folded in
-     here too since it's the same kind of "network/storage resource
-     attached to the sandbox VPC/ECS" work, not a separate track. Route
-     Table, NAT Gateway, and VPC Peering were identified the same way as
-     Security Group — cross-referencing this project's resource coverage
-     against AWS's Service Management Connector and Azure's Service
-     Graph Connector, both of which treat these as core network-family
-     discovery targets alongside VPC/Subnet/Security Group. Terraform
-     side:
+     Peering; Terraform grounding real-verified for all six; Discovery
+     built for EVS/EIP/Security Group, deliberately skipped for the other
+     three)** — originally split out of the original 2B scope for having
+     zero real-API grounding on EVS/EIP; the other four folded in here too
+     since it's the same kind of "network/storage resource attached to the
+     sandbox VPC/ECS" work, not a separate track. Route Table, NAT
+     Gateway, and VPC Peering were initially assumed to be core
+     network-family discovery targets like Security Group, by analogy -
+     that assumption turned out to be WRONG once actually checked: a real
+     lookup of AWS's and Azure's official Service Graph Connector docs
+     (see the Discovery paragraph below) found neither vendor discovers
+     any of the three as a standalone CI. Terraform side:
      - EVS/EIP: `terraform/main.tf` provisions `huaweicloud_evs_volume`
        (+ `huaweicloud_compute_volume_attach`) and `huaweicloud_vpc_eip`
        (+ `huaweicloud_vpc_eip_associate`), **real-PDI verified via a
@@ -311,11 +312,24 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        or could clean up; had to be deleted manually via console before
        `terraform destroy` could complete.
 
-     Remaining before Discovery work can start on Route Table/NAT
-     Gateway/VPC Peering: real field samples (capture actual
-     `describe`/`list` API responses) and the Discovery Script Include(s)
-     themselves. Security Group's, EVS's, and EIP's Discovery are all done
-     (see above).
+     Route Table / NAT Gateway / VPC Peering Discovery: **deliberately not
+     built**, a real decision rather than an oversight. Per this project's
+     standing rule to check AWS/Azure best practice before designing new
+     resource-type mappings, both official Service Graph Connectors'
+     documented network-family CI coverage was checked directly: AWS's
+     (Cloud Network/Cloud Subnet/NIC/Security Group/Cloud Gateway/Network
+     Adapter/IP Address/VNIC Endpoint) and Azure's (VNet/Subnet/NSG/NIC/
+     Public IP/Load Balancer) BOTH omit Route Tables, NAT Gateways, and
+     VPC/VNet Peering entirely - neither treats them as standalone
+     discoverable CIs, only as routing configuration attached to a
+     VPC/Subnet. Inventing a CI class mapping here with no industry
+     precedent would be exactly the kind of self-invented special-case
+     this project's standing rule warns against, so Terraform-only
+     coverage is the intentional end state for these three, not a pending
+     gap. Security Group's, EVS's, and EIP's Discovery are all done (see
+     above); the next Discovery work moves to ELB/RDS instead - both have
+     clear, real CI class mappings in AWS's docs
+     (`cmdb_ci_cloud_load_balancer` / `cmdb_ci_cloud_database`).
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
    grounding for all four is now real-PDI verified: `terraform/main.tf`
