@@ -44,6 +44,12 @@ var PAIRS = [
     libFile: 'servicenow/event-management/lib/mapAlarmToEvent.js',
     mirrorFile: 'servicenow/event-management/webhook-scripted-rest.js',
     pattern: /\b(Critical|Major|Minor|Informational)\s*:\s*\d/g
+  },
+  {
+    label: 'SHA-256 round/init hex constants: pureJsSha256.js -> HuaweiEvsDiscovery.js',
+    libFile: 'servicenow/discovery/lib/pureJsSha256.js',
+    mirrorFile: 'servicenow/discovery/HuaweiEvsDiscovery.js',
+    pattern: /0x[0-9a-fA-F]{8}/g
   }
 ];
 

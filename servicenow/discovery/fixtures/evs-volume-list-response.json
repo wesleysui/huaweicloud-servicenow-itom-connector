@@ -1,0 +1,32 @@
+{
+  "volumes": [
+    {
+      "id": "65125da9-d2e5-4fad-b10f-53a9a293580b",
+      "name": "wsl-manual-smoke-test-1784281457-evs",
+      "size": 10,
+      "status": "in-use",
+      "volume_type": "SSD",
+      "availability_zone": "af-south-1a",
+      "attachments": [
+        {
+          "server_id": "a1dcb4eb-2a08-4678-a385-6ef12beb2a3d",
+          "device": "/dev/sdb",
+          "attachment_id": "9a1c9c3e-4f2f-4b8b-9e3e-9f1a2b3c4d5e",
+          "attached_at": "2026-07-24T15:30:00Z",
+          "host_name": "host-af-south-1a-001",
+          "volume_id": "65125da9-d2e5-4fad-b10f-53a9a293580b"
+        }
+      ]
+    },
+    {
+      "id": "dcab7c7d-9f3b-49c3-a787-3509284aba46",
+      "name": "unattached-example-evs",
+      "size": 10,
+      "status": "available",
+      "volume_type": "SSD",
+      "availability_zone": "af-south-1a",
+      "attachments": []
+    }
+  ],
+  "volumes_links": []
+}
