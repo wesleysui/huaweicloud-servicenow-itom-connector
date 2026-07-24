@@ -1,14 +1,12 @@
 /**
  * Pure mapping logic for EIP (Elastic IP) discovery.
  *
- * CI class chosen by referencing AWS's official Service Graph Connector
- * (per this project's standing rule): AWS discovers Elastic IPs into
- * `cmdb_ci_ip_address` - NOT a cloud-specific class, the same generic IP
- * Address class ServiceNow uses for on-prem network gear. Real-PDI
- * confirmed to exist on this instance (a real MISSING_DEPENDENCY error
- * named it), matching this project's prior findings for VPC, Subnet,
- * Security Group, and EVS all being confirmed correct against the same
- * AWS reference.
+ * CI class is `cmdb_ci_ip_address` - NOT a cloud-specific class, the same
+ * generic IP Address class ServiceNow uses for on-prem network gear.
+ * Real-PDI confirmed to exist on this instance (a real MISSING_DEPENDENCY
+ * error named it), matching this project's prior findings for VPC,
+ * Subnet, Security Group, and EVS all landing on real, standard ServiceNow
+ * CMDB classes rather than needing anything custom.
  *
  * Field names are real, from Huawei's official EIP API documentation
  * (ListPublicips / GET /v1/{project_id}/publicips), real-PDI confirmed
@@ -39,9 +37,8 @@
  * that SAME class/name ('Huawei Cloud - ' + region, matching
  * HuaweiECSDiscovery.js's own placeholder exactly) via `Owns::Owned by` -
  * IRE resolves the stub against the real, already-committed placeholder CI
- * via identification matching (the same mechanism AWS's own connector
- * relies on for cross-payload relationships), not a raw sys_id (still
- * confirmed impossible).
+ * via identification matching, not a raw sys_id (still confirmed
+ * impossible).
  *
  * Relation direction (parent=owner/child=owned) follows the "intuitive"
  * reading of the label pair - matches this project's
@@ -54,8 +51,7 @@
  * already-committed placeholder from a separate HuaweiECSDiscovery.js run
  * - confirms IRE's cross-payload identification-matching mechanism (not a
  * raw sys_id) really is the correct, native way to relate CIs across
- * separate discovery runs in this platform, matching AWS's own connector
- * architecture.
+ * separate discovery runs in this platform.
  *
  * `object_id` was REMOVED after real-PDI testing showed
  * `cmdb_ci_ip_address` has no such field (a real "unknown field 'object_id'

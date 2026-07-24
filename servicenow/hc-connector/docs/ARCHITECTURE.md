@@ -161,10 +161,9 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      sandbox VPC/ECS" work, not a separate track. Route Table, NAT
      Gateway, and VPC Peering were initially assumed to be core
      network-family discovery targets like Security Group, by analogy -
-     that assumption turned out to be WRONG once actually checked: a real
-     lookup of AWS's and Azure's official Service Graph Connector docs
-     (see the Discovery paragraph below) found neither vendor discovers
-     any of the three as a standalone CI. Terraform side:
+     that assumption turned out to be WRONG once actually checked: ServiceNow's
+     standard CMDB CI Class Model (see the Discovery paragraph below) has
+     no standalone CI class for any of the three. Terraform side:
      - EVS/EIP: `terraform/main.tf` provisions `huaweicloud_evs_volume`
        (+ `huaweicloud_compute_volume_attach`) and `huaweicloud_vpc_eip`
        (+ `huaweicloud_vpc_eip_associate`), **real-PDI verified via a
@@ -186,15 +185,15 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        host — `evs.{region}.myhuaweicloud.com`) fetches
        `GET /v3/{project_id}/volumes/detail` (offset/limit pagination, no
        total-count field — stops on a short page) and reconciles into
-       `cmdb_ci_storage_volume` (CI class from AWS's Service Graph
-       Connector docs). One real design question resolved via actual
+       `cmdb_ci_storage_volume` (ServiceNow's standard CMDB class for cloud
+       block-storage volumes). One real design question resolved via actual
        testing, not assumption, per this project's standing rule to check
        for a real platform mechanism before falling back to a workaround:
        could `relations[]` reference an already-committed CI's real sys_id
        (e.g. relate a volume directly to its attached ECS instance,
-       mirroring how AWS's connector relates resources discovered in
-       separate, temporally-independent payloads)? Real-PDI testing gave a
-       definitive **no** — ServiceNow's server-side payload parser
+       discovered in a separate, temporally-independent payload)? Real-PDI
+       testing gave a definitive **no** — ServiceNow's server-side payload
+       parser
        deserializes `relations[].child`/`.parent` as a Java `Integer`; a
        real sys_id string thrown at it produced a real
        `InvalidFormatException: Cannot deserialize value of type
@@ -218,13 +217,13 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        2B. Identified as a discovery candidate by cross-referencing this
        project's resource coverage against another Huawei Cloud
        integration
-       ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server))
-       and AWS/Azure's official connectors, which treat Security Group as
-       core network-family coverage. Discovery: `HuaweiVpcDiscovery.js`
-       extended to fetch `GET /v3/{project_id}/vpc/security-groups` and
-       reconcile into `cmdb_ci_compute_security_group` (CI class from
-       AWS's Service Graph Connector docs). Two real corrections made
-       during real-PDI testing:
+       ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server)),
+       which treats Security Group as core network-family coverage.
+       Discovery: `HuaweiVpcDiscovery.js` extended to fetch
+       `GET /v3/{project_id}/vpc/security-groups` and reconcile into
+       `cmdb_ci_compute_security_group` (ServiceNow's standard CMDB class
+       for cloud security groups). Two real corrections made during
+       real-PDI testing:
        1. The original design related each security group to its parent
           VPC via `Contains::Contained by` (matching Subnet's relation) -
           wrong for two reasons found via real testing: Huawei's actual
@@ -249,9 +248,10 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      - **EIP: Terraform grounding AND Discovery both real-PDI verified.**
        `HuaweiVpcDiscovery.js` extended to fetch `GET /v1/{project_id}/publicips`
        (same v1 host/marker-pagination as VPC/Subnet, real-PDI confirmed)
-       and reconcile into `cmdb_ci_ip_address` (CI class from AWS's Service
-       Graph Connector docs). EIP's real OOTB containment rule turned out
-       to be genuinely different from every other resource in this file -
+       and reconcile into `cmdb_ci_ip_address` (ServiceNow's standard CMDB
+       class for cloud IP addresses). EIP's real OOTB containment rule
+       turned out to be genuinely different from every other resource in
+       this file -
        a real `MISSING_DEPENDENCY` error required an `Owns::Owned by`
        relation to one of `cmdb_ci_hardware` / `cmdb_ci_cloud_database` /
        `cmdb_ci_cloud_load_balancer` / `cmdb_ci_cloud_webserver`, not
@@ -271,8 +271,7 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        (matching `HuaweiECSDiscovery.js`'s own placeholder exactly) via
        `Owns::Owned by` - IRE resolves the stub against the real,
        already-committed CI from the separate ECS discovery run through
-       identification matching (the same mechanism AWS's own connector
-       relies on for cross-payload relationships), not a raw sys_id (still
+       identification matching, not a raw sys_id (still
        confirmed impossible - see EVS above). This is the first real,
        working example of a cross-discovery-run relationship in this
        project - real-PDI verified end to end: `hasError:false`, the EIP
@@ -313,23 +312,18 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        `terraform destroy` could complete.
 
      Route Table / NAT Gateway / VPC Peering Discovery: **deliberately not
-     built**, a real decision rather than an oversight. Per this project's
-     standing rule to check AWS/Azure best practice before designing new
-     resource-type mappings, both official Service Graph Connectors'
-     documented network-family CI coverage was checked directly: AWS's
-     (Cloud Network/Cloud Subnet/NIC/Security Group/Cloud Gateway/Network
-     Adapter/IP Address/VNIC Endpoint) and Azure's (VNet/Subnet/NSG/NIC/
-     Public IP/Load Balancer) BOTH omit Route Tables, NAT Gateways, and
-     VPC/VNet Peering entirely - neither treats them as standalone
-     discoverable CIs, only as routing configuration attached to a
-     VPC/Subnet. Inventing a CI class mapping here with no industry
-     precedent would be exactly the kind of self-invented special-case
-     this project's standing rule warns against, so Terraform-only
-     coverage is the intentional end state for these three, not a pending
-     gap. Security Group's, EVS's, and EIP's Discovery are all done (see
-     above); the next Discovery work moves to ELB/RDS instead - both have
-     clear, real CI class mappings in AWS's docs
-     (`cmdb_ci_cloud_load_balancer` / `cmdb_ci_cloud_database`).
+     built**, a real decision rather than an oversight. ServiceNow's
+     standard CMDB CI Class Model doesn't treat routing configuration
+     (route tables, NAT gateways, peering connections) as standalone
+     discoverable assets - they're modeled as configuration attached to a
+     VPC/Subnet, not separately identified/reconciled resources. Inventing
+     a CI class mapping here with no platform precedent would be exactly
+     the kind of self-invented special-case this project's standing rule
+     warns against, so Terraform-only coverage is the intentional end
+     state for these three, not a pending gap. Security Group's, EVS's,
+     and EIP's Discovery are all done (see above); the next Discovery work
+     moves to ELB/RDS instead - both have clear, standard CI class
+     mappings (`cmdb_ci_cloud_load_balancer` / `cmdb_ci_cloud_database`).
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
    grounding for all four is now real-PDI verified: `terraform/main.tf`

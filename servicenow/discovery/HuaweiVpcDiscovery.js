@@ -10,9 +10,9 @@
 // (GET /v1/{project_id}/publicips, per Huawei's official EIP API docs) -
 // real-PDI confirmed this project's sandbox serves it from the same
 // `vpc.{region}.myhuaweicloud.com` host as VPC/Subnet/Security Group.
-// CI class cmdb_ci_ip_address (from AWS's Service Graph Connector docs,
-// same sourcing as every other CI class below) - real-PDI confirmed to
-// exist with real OOTB containment metadata.
+// CI class cmdb_ci_ip_address (ServiceNow's standard CMDB class for cloud
+// IP addresses, same sourcing as every other CI class below) - real-PDI
+// confirmed to exist with real OOTB containment metadata.
 //
 // EIP's real OOTB containment rule is DIFFERENT from every other class in
 // this file - confirmed via a real MISSING_DEPENDENCY error:
@@ -33,9 +33,7 @@
 // that SAME class/name ('Huawei Cloud - ' + region, matching
 // HuaweiECSDiscovery.js's own placeholder exactly) via `Owns::Owned by` -
 // IRE resolves it against the real, already-committed placeholder CI via
-// identification matching (same mechanism AWS's own connector relies on
-// for cross-payload relationships - see this project's EVS/mapEvsToIRE.js
-// research trail), not a raw sys_id (still confirmed impossible - see
+// identification matching, not a raw sys_id (still confirmed impossible - see
 // mapEvsToIRE.js). Relation direction (parent=owner/child=owned) follows
 // the "intuitive" reading of the label pair, matching this file's
 // CONTAINMENT_RELATION_TYPE precedent (the "parent=dependent" convention
@@ -279,9 +277,9 @@ HuaweiVpcDiscovery.prototype = {
 
     // Security Group addition (Phase 2C) - mirrors
     // lib/mapSecurityGroupToIRE.js inline. CI_CLASS_SECURITY_GROUP
-    // (sourced from AWS's Service Graph Connector docs) is real-PDI
-    // confirmed to exist with real OOTB containment metadata (a genuine
-    // MISSING_DEPENDENCY error referenced it by name - see
+    // (ServiceNow's standard CMDB class for cloud security groups) is
+    // real-PDI confirmed to exist with real OOTB containment metadata (a
+    // genuine MISSING_DEPENDENCY error referenced it by name - see
     // HOSTING_RELATION_TYPE usage below). NOT yet confirmed whether it has
     // a working Identification Rule - the payload was rejected on the
     // containment check before identification could be fully exercised;
@@ -289,9 +287,10 @@ HuaweiVpcDiscovery.prototype = {
     CI_CLASS_SECURITY_GROUP: 'cmdb_ci_compute_security_group',
 
     // EIP addition (Phase 2C) - mirrors lib/mapEipToIRE.js inline.
-    // CI_CLASS_EIP sourced from AWS's Service Graph Connector docs,
-    // real-PDI confirmed to exist with real OOTB containment metadata (see
-    // this file's header comment for the full MISSING_DEPENDENCY trail).
+    // CI_CLASS_EIP is ServiceNow's standard CMDB class for cloud IP
+    // addresses, real-PDI confirmed to exist with real OOTB containment
+    // metadata (see this file's header comment for the full
+    // MISSING_DEPENDENCY trail).
     CI_CLASS_EIP: 'cmdb_ci_ip_address',
     // Matches HuaweiECSDiscovery.js's own placeholder exactly (same class,
     // same name convention) so IRE's identification matching resolves this

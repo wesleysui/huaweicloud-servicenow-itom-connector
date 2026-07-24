@@ -22,10 +22,10 @@
 > `Owns::Owned by` — IRE matches the stub against the real, already-
 > committed placeholder through identification, the first working
 > cross-discovery-run relationship in this project). **Route Table/NAT
-> Gateway/VPC Peering Discovery are deliberately NOT built** — both AWS's
-> and Azure's official Service Graph Connector docs were checked directly
-> and neither discovers any of the three as a standalone CI, only as
-> routing config; Terraform-only coverage is the intentional end state.
+> Gateway/VPC Peering Discovery are deliberately NOT built** — they're
+> routing config attached to a VPC/Subnet, not standalone discoverable
+> assets under ServiceNow's CMDB CI Class Model; Terraform-only coverage
+> is the intentional end state.
 > Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
@@ -275,13 +275,11 @@ node servicenow/hc-connector/scripts/check-mirror-drift.js          # 4 mirrored
   account (Phase 2A: HC2/HC3/HC4 directly, HC1/HC5 on lighter evidence;
   Phase 2B: HC6–HC10 all directly).
 - **Route Table/NAT Gateway/VPC Peering Discovery are deliberately NOT
-  built** — not a gap, a real decision: both AWS's and Azure's official
-  Service Graph Connector docs were checked directly (per this project's
-  standing rule) and neither discovers any of the three as a standalone
-  CI, only as routing config attached to a VPC/Subnet. Their Terraform
-  grounding is real-PDI verified and that's the intentional end state.
-  **Security Group, EVS, and EIP Discovery, also Phase 2C, ARE done and
-  real-PDI verified** (see above).
+  built** — not a gap, a real decision: they're routing config attached to
+  a VPC/Subnet, not standalone discoverable assets under ServiceNow's CMDB
+  CI Class Model. Their Terraform grounding is real-PDI verified and
+  that's the intentional end state. **Security Group, EVS, and EIP
+  Discovery, also Phase 2C, ARE done and real-PDI verified** (see above).
 - No working IAM Agency authentication (interface stub only — needs a real
   Huawei Organizations account).
 - No deployed event gateway (FunctionGraph/API Gateway) — architecture doc

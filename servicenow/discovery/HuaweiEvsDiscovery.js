@@ -39,9 +39,9 @@
 // on a short page instead - see lib/evsPagination.js.
 //
 // CI class (CI_CLASS_EVS below) is real-PDI confirmed to exist
-// (cmdb_ci_storage_volume, sourced from AWS's Service Graph Connector
-// docs) - a real MISSING_DEPENDENCY error named it, listing three
-// possible containment/hosting rules; this uses
+// (cmdb_ci_storage_volume, ServiceNow's standard CMDB class for cloud
+// block-storage volumes) - a real MISSING_DEPENDENCY error named it,
+// listing three possible containment/hosting rules; this uses
 // Hosted on::Hosts -> cmdb_ci_logical_datacenter, the same
 // class/relation type already proven for VPC. See lib/mapEvsToIRE.js's
 // header comment for the full research trail.

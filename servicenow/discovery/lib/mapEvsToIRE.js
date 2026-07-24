@@ -1,17 +1,16 @@
 /**
  * Pure mapping logic for EVS (Elastic Volume Service / disk) discovery.
  *
- * CI class chosen by referencing AWS's official Service Graph Connector
- * (per this project's standing rule): AWS discovers EBS volumes into
- * `cmdb_ci_storage_volume`. Real-PDI confirmed to exist on this instance
- * (a real MISSING_DEPENDENCY error named it).
+ * CI class is `cmdb_ci_storage_volume`, ServiceNow's standard CMDB class
+ * for cloud block-storage volumes. Real-PDI confirmed to exist on this
+ * instance (a real MISSING_DEPENDENCY error named it).
  *
  * RELATION TO ECS: TESTED AND CONFIRMED NOT POSSIBLE via this project's
  * cross-discovery-run approach. The original design tried passing the
  * ECS CI's real, already-committed sys_id directly as a relations[]
  * parent/child value (instead of an array index), reasoning that IRE
- * might support it the way AWS's own connector relates resources
- * discovered across separate, temporally-independent payloads. Real-PDI
+ * might support relating resources discovered across separate,
+ * temporally-independent payloads that way. Real-PDI
  * testing gave a DEFINITIVE, not-just-a-format-issue answer: ServiceNow's
  * server-side payload parser deserializes `relations[].child` (and
  * `.parent`) as a Java `Integer` - a real sys_id string

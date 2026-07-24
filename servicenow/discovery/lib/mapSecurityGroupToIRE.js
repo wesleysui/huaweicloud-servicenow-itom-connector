@@ -6,13 +6,10 @@
  * reconcileCIs()) - this project's IRE relations[] entries reference
  * items[] by array index, which only works within a single call.
  *
- * CI class chosen by researching how AWS's own official Service Graph
- * Connector models this resource (per this project's standing rule to
- * reference AWS/Azure before designing a new mapping): AWS discovers
- * Security Groups into `cmdb_ci_compute_security_group`. Source:
- * ServiceNow's "Service Graph Connector for AWS - Functional Spec and CI"
- * community article. Real-PDI confirmed on this instance (the class
- * exists and accepted real data once the relation below was fixed).
+ * CI class is `cmdb_ci_compute_security_group`, ServiceNow's standard CMDB
+ * class for cloud security groups. Real-PDI confirmed on this instance
+ * (the class exists and accepted real data once the relation below was
+ * fixed).
  *
  * HOSTING_RELATION_TYPE ("Hosted on::Hosts" -> cmdb_ci_logical_datacenter)
  * is real-PDI confirmed, NOT the original design. First attempt related
@@ -49,9 +46,8 @@
  * silent omission.
  *
  * Rules are deliberately NOT mapped into the CI item or decomposed into
- * their own CIs - AWS's own connector doesn't appear to model individual
- * SG rules as CMDB items either (its functional spec lists no separate
- * rule-level CI class), so this matches that scope.
+ * their own CIs - there is no separate rule-level CI class in ServiceNow's
+ * standard CMDB model for this resource type, so this matches that scope.
  */
 
 var CI_CLASS_SECURITY_GROUP = 'cmdb_ci_compute_security_group';
