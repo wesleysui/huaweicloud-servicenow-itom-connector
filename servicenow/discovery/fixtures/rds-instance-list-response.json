@@ -1,0 +1,24 @@
+{
+  "instances": [
+    {
+      "id": "7e3c1a2b-4d5e-4f6a-8b9c-1d2e3f4a5b6c",
+      "name": "sandbox-1-rds",
+      "status": "ACTIVE",
+      "datastore": { "type": "MySQL", "version": "8.0" },
+      "private_ips": ["192.168.10.80"],
+      "private_dns_names": [],
+      "vpc_id": "0d43fd93-1f2c-4981-86a2-f3d6c37135b6",
+      "subnet_id": "7dfc429e-d5aa-425e-915d-d8ebfc3cd8db",
+      "security_group_id": "3646133c-4547-4edb-a4da-4b8dc084f1ab",
+      "created": "2026-07-24T03:12:45+0000",
+      "updated": "2026-07-24T03:12:45+0000",
+      "port": 3306,
+      "type": "Single",
+      "region": "af-south-1",
+      "nodes": [],
+      "volume": { "type": "CLOUDSSD", "size": 40 },
+      "tags": []
+    }
+  ],
+  "total_count": 1
+}

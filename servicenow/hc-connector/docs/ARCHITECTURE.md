@@ -375,8 +375,28 @@ FunctionGraph/API Gateway account, see Phase 5 below).
    on a second run (`insertCount:0, refreshCount:1`, all `NO_CHANGE`, no
    warnings).
 
-   Discovery work for RDS/OBS/CCE hasn't started; only the provisioning
-   side is verified for those three.
+   **RDS: Discovery real-PDI verified.** `HuaweiRdsDiscovery.js` (own
+   file/host, `rds.{region}.myhuaweicloud.com`, real-PDI confirmed) fetches
+   `GET /v3/{project_id}/instances` (row-offset pagination with a real
+   `total_count` field - a genuine hybrid of ECS's page-number style and
+   EVS's no-total-count style, real-PDI confirmed) and reconciles into
+   `cmdb_ci_cloud_database` (ServiceNow's standard CMDB class for
+   cloud-managed databases, real-PDI confirmed to exist). Its real OOTB
+   containment rule turned out to be the same `Hosted on::Hosts ->
+   cmdb_ci_logical_datacenter` pattern already proven for
+   VPC/Security Group/EVS/ELB - confirmed via a real `MISSING_DEPENDENCY`
+   error, fixed with the same local placeholder-pair approach. Unlike
+   ELB, `object_id` was included proactively this time (a deliberate
+   choice, not a guess - Security Group/EVS/ELB had all already
+   established the pattern) and it worked on the first try: no
+   `MISSING_MATCHING_ATTRIBUTES` error, `cmdb_ci_cloud_database`'s real
+   OOTB Identification Rule ("Cloud DataBase Rule") matched immediately.
+   Real-PDI verified end to end (`hasError:false`, instance CI + relation
+   both inserted) and confirmed idempotent on a second run
+   (`insertCount:0, refreshCount:1`, all `NO_CHANGE`).
+
+   Discovery work for OBS/CCE hasn't started; only the provisioning side
+   is verified for those two.
 4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3
    CCE stability and event-driven incremental capability; default off;
    excludes `kube-system`, Jobs/CronJobs, completed Pods; 24h retirement
