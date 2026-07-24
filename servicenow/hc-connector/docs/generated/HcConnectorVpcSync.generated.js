@@ -10,13 +10,13 @@
 // and lib/syncStatePlanner.js (module.exports stripped) at the marker below,
 // producing docs/generated/HcConnectorVpcSync.generated.js - paste THAT.
 //
-// Multi-account/region VPC + Subnet + Security Group sync orchestrator (HC
-// ITOM Connector Phase 2B, Security Group added in Phase 2C). Sibling to
-// service-graph/HcConnectorEcsSync.js, not a refactor of it - that file is
-// real-PDI verified and intentionally left untouched. No shared base class
-// between the two on purpose, to keep the diff against Phase 2A's proven
-// code at exactly zero; reuse happens at the pure lib/ layer below, which
-// is already resource-type-agnostic.
+// Multi-account/region VPC + Subnet + Security Group + EIP sync
+// orchestrator (HC ITOM Connector Phase 2B, Security Group and EIP added
+// in Phase 2C). Sibling to service-graph/HcConnectorEcsSync.js, not a
+// refactor of it - that file is real-PDI verified and intentionally left
+// untouched. No shared base class between the two on purpose, to keep the
+// diff against Phase 2A's proven code at exactly zero; reuse happens at
+// the pure lib/ layer below, which is already resource-type-agnostic.
 //
 // For every active HC Cloud Region under every active HC Cloud Account:
 //   1. resolve credentials (createCredentialProvider, from HC Cloud
@@ -24,30 +24,31 @@
 //   2. construct a HuaweiVpcDiscovery with explicit config (its
 //      fetch/sign/reconcile logic - see
 //      servicenow/discovery/HuaweiVpcDiscovery.js)
-//   3. fetch vpcs, subnets, AND security groups, then reconcile via ONE
-//      IRE call (relations[] needs every side's array indices in the same
-//      payload - can't be split across separate createOrUpdateCI calls;
-//      this is also why Security Group -> ECS instance relations aren't
-//      attempted here, since ECS is a wholly separate discovery run - see
-//      HuaweiVpcDiscovery.js's header comment)
+//   3. fetch vpcs, subnets, security groups, AND eips, then reconcile via
+//      ONE IRE call (relations[] needs every side's array indices in the
+//      same payload - can't be split across separate createOrUpdateCI
+//      calls; this is also why Security Group/EIP -> ECS instance
+//      relations aren't attempted here, since ECS is a wholly separate
+//      discovery run - see HuaweiVpcDiscovery.js's header comment)
 //   4. upsert HC Resource Sync State for EACH resource type separately -
 //      planSyncStateUpdates (lib/syncStatePlanner.js, unchanged) is called
-//      THREE times, once per resource type, since it's already scoped by
+//      FOUR times, once per resource type, since it's already scoped by
 //      resource_type via its caller
 //   5. run the retirement pass for each resource type - but ONLY if the
 //      shared fetch/reconcile phase succeeded; a failure skips straight to
-//      recording the error (for ALL THREE resource types' run rows
+//      recording the error (for ALL FOUR resource types' run rows
 //      together) and moving to the next region. Same structural guarantee
 //      as ECS: "an incomplete sync can never retire a resource."
 // One account/region's failure is caught and logged without stopping the
 // loop for the others.
 //
-// Three HC Discovery Run rows per account/region iteration (one per
-// resource_type='vpc'/'subnet'/'security_group'), sharing one trace_id to
-// link them as "the same underlying fetch" - not a combined resource_type
-// string, since hc_discovery_run/RESOURCE-MATRIX.md are both designed
-// around one row = one resource type. Adding 'security_group' needed no
-// schema change - resource_type is a plain string field, not a choice list.
+// Four HC Discovery Run rows per account/region iteration (one per
+// resource_type='vpc'/'subnet'/'security_group'/'eip'), sharing one
+// trace_id to link them as "the same underlying fetch" - not a combined
+// resource_type string, since hc_discovery_run/RESOURCE-MATRIX.md are both
+// designed around one row = one resource type. Adding 'security_group'/
+// 'eip' needed no schema change - resource_type is a plain string field,
+// not a choice list.
 
 // ---- inlined from lib/credentialProvider.js (do not hand-edit here - edit the source and regenerate) ----
 /**
@@ -488,10 +489,11 @@ HcConnectorVpcSync.prototype = {
         this.CONFIG_TABLE = this.SCOPE + '_hc_connector_config';
         this.RESOURCE_TYPE_VPC = 'vpc';
         this.RESOURCE_TYPE_SUBNET = 'subnet';
-        // Phase 2C addition - 'security_group' needed no schema change:
-        // hc_discovery_run.resource_type is a plain string field (not a
-        // choice list), so a new value here just works.
+        // Phase 2C addition - 'security_group'/'eip' needed no schema
+        // change: hc_discovery_run.resource_type is a plain string field
+        // (not a choice list), so a new value here just works.
         this.RESOURCE_TYPE_SECURITY_GROUP = 'security_group';
+        this.RESOURCE_TYPE_EIP = 'eip';
     },
 
     // ------------------------------------------------------------------
@@ -522,7 +524,7 @@ HcConnectorVpcSync.prototype = {
 
     _runForAccountRegion: function(account, region) {
         var startedAtMs = new Date().getTime();
-        var traceId = gs.generateGUID(); // one trace id links the vpc+subnet+security_group run triple
+        var traceId = gs.generateGUID(); // one trace id links the vpc+subnet+security_group+eip run quadruple
         var vpcRunFields = startRun({
             accountSysId: account.sys_id,
             regionSysId: region.sys_id,
@@ -547,13 +549,22 @@ HcConnectorVpcSync.prototype = {
             traceId: traceId,
             startedAtMs: startedAtMs
         });
+        var eipRunFields = startRun({
+            accountSysId: account.sys_id,
+            regionSysId: region.sys_id,
+            resourceType: this.RESOURCE_TYPE_EIP,
+            correlationId: account.account_id + ':' + region.region + ':eip',
+            traceId: traceId,
+            startedAtMs: startedAtMs
+        });
         var vpcRunSysId = this._insertDiscoveryRun(vpcRunFields);
         var subnetRunSysId = this._insertDiscoveryRun(subnetRunFields);
         var sgRunSysId = this._insertDiscoveryRun(sgRunFields);
+        var eipRunSysId = this._insertDiscoveryRun(eipRunFields);
 
         var fetchResult;
         try {
-            fetchResult = this._fetchVpcsSubnetsAndSecurityGroups(account, region);
+            fetchResult = this._fetchVpcsSubnetsSecurityGroupsAndEips(account, region);
         } catch (fetchEx) {
             gs.error('[HcConnectorVpcSync] fetch failed for account=' + account.account_id +
                 ' region=' + region.region + ': ' + fetchEx.message);
@@ -561,12 +572,13 @@ HcConnectorVpcSync.prototype = {
             this._finishRun(vpcRunSysId, vpcRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(subnetRunSysId, subnetRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(sgRunSysId, sgRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
-            return; // structural guarantee: retirement below is unreachable on fetch failure, for ALL THREE resource types
+            this._finishRun(eipRunSysId, eipRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
+            return; // structural guarantee: retirement below is unreachable on fetch failure, for ALL FOUR resource types
         }
 
         var reconcileResult;
         try {
-            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.vpcs, fetchResult.subnets, fetchResult.securityGroups);
+            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.vpcs, fetchResult.subnets, fetchResult.securityGroups, fetchResult.eips);
         } catch (reconcileEx) {
             gs.error('[HcConnectorVpcSync] reconcile failed for account=' + account.account_id +
                 ' region=' + region.region + ': ' + reconcileEx.message);
@@ -574,7 +586,8 @@ HcConnectorVpcSync.prototype = {
             this._finishRun(vpcRunSysId, vpcRunFields, { successCount: 0, failCount: fetchResult.vpcs.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(subnetRunSysId, subnetRunFields, { successCount: 0, failCount: fetchResult.subnets.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(sgRunSysId, sgRunFields, { successCount: 0, failCount: fetchResult.securityGroups.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
-            return; // also skip retirement for all three - we don't know which CIs actually got created
+            this._finishRun(eipRunSysId, eipRunFields, { successCount: 0, failCount: fetchResult.eips.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
+            return; // also skip retirement for all four - we don't know which CIs actually got created
         }
 
         this._finishRun(vpcRunSysId, vpcRunFields, {
@@ -592,10 +605,15 @@ HcConnectorVpcSync.prototype = {
             failCount: 0,
             endedAtMs: new Date().getTime()
         });
+        this._finishRun(eipRunSysId, eipRunFields, {
+            successCount: reconcileResult.eipSummary.insertCount + reconcileResult.eipSummary.refreshCount,
+            failCount: 0,
+            endedAtMs: new Date().getTime()
+        });
         this._recordRegionSuccess(region.sys_id);
         gs.info('[HcConnectorVpcSync] account=' + account.account_id + ' region=' + region.region +
             ' done: vpc=' + JSON.stringify(reconcileResult.vpcSummary) + ' subnet=' + JSON.stringify(reconcileResult.subnetSummary) +
-            ' security_group=' + JSON.stringify(reconcileResult.sgSummary));
+            ' security_group=' + JSON.stringify(reconcileResult.sgSummary) + ' eip=' + JSON.stringify(reconcileResult.eipSummary));
     },
 
     _finishRun: function(runSysId, runFields, outcome) {
@@ -605,7 +623,7 @@ HcConnectorVpcSync.prototype = {
     // ------------------------------------------------------------------
     // Fetch (delegates to HuaweiVpcDiscovery)
     // ------------------------------------------------------------------
-    _fetchVpcsSubnetsAndSecurityGroups: function(account, region) {
+    _fetchVpcsSubnetsSecurityGroupsAndEips: function(account, region) {
         var provider = createCredentialProvider(account.auth_mode, {
             propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
             accountId: account.account_id
@@ -624,23 +642,25 @@ HcConnectorVpcSync.prototype = {
         var vpcs = disco.fetchVPCs(); // throws on a page failure - see HuaweiVpcDiscovery.js
         var subnets = disco.fetchSubnets();
         var securityGroups = disco.fetchSecurityGroups();
-        return { disco: disco, vpcs: vpcs, subnets: subnets, securityGroups: securityGroups };
+        var eips = disco.fetchEips();
+        return { disco: disco, vpcs: vpcs, subnets: subnets, securityGroups: securityGroups, eips: eips };
     },
 
     // ------------------------------------------------------------------
     // Reconcile (delegates to HuaweiVpcDiscovery.reconcileCIs)
     // + upsert HC Resource Sync State (per resource type) + retirement
     // ------------------------------------------------------------------
-    _reconcileAndUpsert: function(account, region, vpcs, subnets, securityGroups) {
+    _reconcileAndUpsert: function(account, region, vpcs, subnets, securityGroups, eips) {
         var self = this;
         securityGroups = securityGroups || [];
+        eips = eips || [];
 
         // Same throwaway-instance reasoning as HcConnectorEcsSync: reconcileCIs
         // doesn't need credentials, only region/accountId (used to identify the
         // shared logical-datacenter/cloud-service-account placeholders), so a
         // fresh instance configured the same way is fine here.
         var disco = new HuaweiVpcDiscovery({ region: region.region, accountId: account.account_id });
-        var result = disco.reconcileCIs(vpcs, subnets, securityGroups);
+        var result = disco.reconcileCIs(vpcs, subnets, securityGroups, eips);
 
         // reconcileCIs catches its own exceptions internally and returns undefined on
         // failure rather than rethrowing (see HuaweiVpcDiscovery.js) - this is where that
@@ -667,29 +687,38 @@ HcConnectorVpcSync.prototype = {
         var sgSeen = securityGroups.map(function(sg) {
             return { native_key: sg.id, ci: self._lookupCiByCorrelationId(sg.id, disco.CI_CLASS_SECURITY_GROUP) };
         });
+        var eipSeen = eips.map(function(eip) {
+            return { native_key: eip.id, ci: self._lookupCiByCorrelationId(eip.id, disco.CI_CLASS_EIP) };
+        });
 
         var vpcExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_VPC);
         var subnetExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_SUBNET);
         var sgExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_SECURITY_GROUP);
+        var eipExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_EIP);
 
         var missThreshold = this._getConsecutiveMissThreshold();
         var vpcPlan = planSyncStateUpdates(vpcSeen, vpcExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
         var subnetPlan = planSyncStateUpdates(subnetSeen, subnetExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
         var sgPlan = planSyncStateUpdates(sgSeen, sgExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
+        var eipPlan = planSyncStateUpdates(eipSeen, eipExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
 
         this._applyInserts(account, region, this.RESOURCE_TYPE_VPC, vpcPlan.toInsert);
         this._applyInserts(account, region, this.RESOURCE_TYPE_SUBNET, subnetPlan.toInsert);
         this._applyInserts(account, region, this.RESOURCE_TYPE_SECURITY_GROUP, sgPlan.toInsert);
+        this._applyInserts(account, region, this.RESOURCE_TYPE_EIP, eipPlan.toInsert);
         this._applyRefreshes(vpcPlan.toRefresh);
         this._applyRefreshes(subnetPlan.toRefresh);
         this._applyRefreshes(sgPlan.toRefresh);
+        this._applyRefreshes(eipPlan.toRefresh);
         this._applyTransitions(vpcPlan.toTransition);
         this._applyTransitions(subnetPlan.toTransition);
         this._applyTransitions(sgPlan.toTransition);
+        this._applyTransitions(eipPlan.toTransition);
 
         return {
-            vpcPlan: vpcPlan, subnetPlan: subnetPlan, sgPlan: sgPlan,
-            vpcSummary: summarizePlan(vpcPlan), subnetSummary: summarizePlan(subnetPlan), sgSummary: summarizePlan(sgPlan)
+            vpcPlan: vpcPlan, subnetPlan: subnetPlan, sgPlan: sgPlan, eipPlan: eipPlan,
+            vpcSummary: summarizePlan(vpcPlan), subnetSummary: summarizePlan(subnetPlan),
+            sgSummary: summarizePlan(sgPlan), eipSummary: summarizePlan(eipPlan)
         };
     },
 

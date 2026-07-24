@@ -1,0 +1,38 @@
+{
+  "publicips": [
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "status": "ACTIVE",
+      "type": "5_bgp",
+      "public_ip_address": "159.138.10.20",
+      "ip_version": 4,
+      "private_ip_address": "192.168.0.15",
+      "port_id": "6d5a2f3e-1234-4a1b-8b2e-abcdef123456",
+      "tenant_id": "00000000000000000000000000000000",
+      "create_time": "2026-07-10 03:12:45",
+      "bandwidth_id": "b1a2c3d4-5678-4e9f-a0b1-c2d3e4f56789",
+      "bandwidth_size": 5,
+      "bandwidth_share_type": "PER",
+      "bandwidth_name": "bandwidth-sandbox-1",
+      "alias": "sandbox-eip-1",
+      "enterprise_project_id": "0"
+    },
+    {
+      "id": "8b1e2c3d-4f5a-4b6c-9d0e-1f2a3b4c5d6e",
+      "status": "DOWN",
+      "type": "5_bgp",
+      "public_ip_address": "159.138.10.21",
+      "ip_version": 4,
+      "private_ip_address": "",
+      "port_id": "",
+      "tenant_id": "00000000000000000000000000000000",
+      "create_time": "2026-07-12 09:40:02",
+      "bandwidth_id": "c2b3d4e5-6789-4f0a-b1c2-d3e4f5a6b7c8",
+      "bandwidth_size": 5,
+      "bandwidth_share_type": "PER",
+      "bandwidth_name": "bandwidth-sandbox-2",
+      "alias": "",
+      "enterprise_project_id": "0"
+    }
+  ]
+}

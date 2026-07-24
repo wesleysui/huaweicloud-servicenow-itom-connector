@@ -1,10 +1,56 @@
 // Script Include: HuaweiVpcDiscovery
 // HC ITOM Connector Phase 2B - VPC + Subnet discovery, extended in Phase
-// 2C to also cover Security Group (same VPC API family, same signing/
-// pagination/retry harness - the reuse case is identical to why VPC and
-// Subnet share this one file, see below). Sibling to HuaweiECSDiscovery.js,
-// not a modification of it - that file is real-PDI verified and
-// intentionally left untouched.
+// 2C to also cover Security Group and EIP (same VPC API family, same
+// signing/pagination/retry harness - the reuse case is identical to why
+// VPC and Subnet share this one file, see below). Sibling to
+// HuaweiECSDiscovery.js, not a modification of it - that file is
+// real-PDI verified and intentionally left untouched.
+//
+// EIP (Elastic IP) uses the same v1 host/pagination as VPC/Subnet
+// (GET /v1/{project_id}/publicips, per Huawei's official EIP API docs) -
+// real-PDI confirmed this project's sandbox serves it from the same
+// `vpc.{region}.myhuaweicloud.com` host as VPC/Subnet/Security Group.
+// CI class cmdb_ci_ip_address (from AWS's Service Graph Connector docs,
+// same sourcing as every other CI class below) - real-PDI confirmed to
+// exist with real OOTB containment metadata.
+//
+// EIP's real OOTB containment rule is DIFFERENT from every other class in
+// this file - confirmed via a real MISSING_DEPENDENCY error:
+// cmdb_ci_ip_address needs an `Owns::Owned by` relation to one of
+// cmdb_ci_hardware / cmdb_ci_cloud_database / cmdb_ci_cloud_load_balancer /
+// cmdb_ci_cloud_webserver - NOT Hosted on::Hosts -> logical_datacenter like
+// VPC/Subnet/Security Group/EVS. Two things were checked for real before
+// picking a fix (per this project's "verify before assuming" standard):
+// (1) whether ECS's own CI class (cmdb_ci_vm_instance) is hardware-family -
+// checked via a real sys_db_object super_class walk: it is NOT
+// (cmdb_ci_vm_instance -> cmdb_ci_vm_object -> cmdb_ci -> cmdb), ruling out
+// any stub relation to the per-instance ECS CI; (2) whether
+// cmdb_ci_virtualization_server - the shared placeholder
+// HuaweiECSDiscovery.js already creates for its own "Runs on::Runs"
+// containment fix - IS hardware-family: confirmed YES
+// (cmdb_ci_virtualization_server -> cmdb_ci_server -> cmdb_ci_computer ->
+// cmdb_ci_hardware). So each EIP relates to a FRESH, locally-built stub of
+// that SAME class/name ('Huawei Cloud - ' + region, matching
+// HuaweiECSDiscovery.js's own placeholder exactly) via `Owns::Owned by` -
+// IRE resolves it against the real, already-committed placeholder CI via
+// identification matching (same mechanism AWS's own connector relies on
+// for cross-payload relationships - see this project's EVS/mapEvsToIRE.js
+// research trail), not a raw sys_id (still confirmed impossible - see
+// mapEvsToIRE.js). Relation direction (parent=owner/child=owned) follows
+// the "intuitive" reading of the label pair, matching this file's
+// CONTAINMENT_RELATION_TYPE precedent (the "parent=dependent" convention
+// used for HOSTING_RELATION_TYPE broke CONTAINMENT_RELATION_TYPE when
+// tried there). REAL-PDI VERIFIED CORRECT on the first try: hasError:false,
+// the EIP CI inserted, the Owns::Owned by relation inserted, and the
+// virtualization_server stub correctly matched (NO_CHANGE, not a
+// duplicate) against the real placeholder from a separate
+// HuaweiECSDiscovery.js run - confirms the cross-payload
+// identification-matching mechanism really is this platform's native way
+// to relate CIs across separate discovery runs. `object_id` was removed
+// from the EIP item after real-PDI testing showed cmdb_ci_ip_address has
+// no such field (silently dropped with a logged warning, not an error) -
+// real identification uses an OOTB "IP Address" rule keyed on
+// `ip_address`+`netmask` instead.
 //
 // Security Group -> ECS instance is NOT related here (no "Secures"
 // relation) - ECS is discovered in a separate Script Include/call, and
@@ -127,6 +173,12 @@ HuaweiVpcDiscovery.prototype = {
         return this._fetchAllPages('/v3/' + this.projectId + '/vpc/security-groups', 'security_groups');
     },
 
+    // EIP v1 API (ListPublicips) - see this file's header comment for the
+    // host assumption. Same marker-pagination shape as VPC/Subnet.
+    fetchEips: function() {
+        return this._fetchAllPages('/v1/' + this.projectId + '/publicips', 'publicips');
+    },
+
     // Shared marker-pagination driver for both endpoints - the actual reuse
     // payoff of combining VPC+Subnet fetch into one file. THROWS on a page
     // fetch failure (same "incomplete fetch must never look like an empty
@@ -236,18 +288,35 @@ HuaweiVpcDiscovery.prototype = {
     // confirm on the next real-PDI run now that the relation is fixed.
     CI_CLASS_SECURITY_GROUP: 'cmdb_ci_compute_security_group',
 
-    reconcileCIs: function(vpcs, subnets, securityGroups) {
+    // EIP addition (Phase 2C) - mirrors lib/mapEipToIRE.js inline.
+    // CI_CLASS_EIP sourced from AWS's Service Graph Connector docs,
+    // real-PDI confirmed to exist with real OOTB containment metadata (see
+    // this file's header comment for the full MISSING_DEPENDENCY trail).
+    CI_CLASS_EIP: 'cmdb_ci_ip_address',
+    // Matches HuaweiECSDiscovery.js's own placeholder exactly (same class,
+    // same name convention) so IRE's identification matching resolves this
+    // file's stub against the real, already-committed CI from the ECS
+    // discovery run - see this file's header comment.
+    CI_CLASS_VIRTUALIZATION_SERVER: 'cmdb_ci_virtualization_server',
+    OWNERSHIP_RELATION_TYPE: 'Owns::Owned by',
+
+    reconcileCIs: function(vpcs, subnets, securityGroups, eips) {
         vpcs = vpcs || [];
         subnets = subnets || [];
         securityGroups = securityGroups || [];
-        if (!vpcs.length && !subnets.length && !securityGroups.length) return;
+        eips = eips || [];
+        if (!vpcs.length && !subnets.length && !securityGroups.length && !eips.length) return;
 
         var items = [];
         var relations = [];
 
         var accountIndex = null;
         var datacenterIndex = null;
-        if (vpcs.length) {
+        // Gated on VPC/Security Group having results - EIP does NOT need
+        // this placeholder pair (it relates to a separate
+        // cmdb_ci_virtualization_server stub instead, built further below,
+        // only when eips.length - see this file's header comment).
+        if (vpcs.length || securityGroups.length) {
             items.push({
                 className: this.CI_CLASS_CLOUD_SERVICE_ACCOUNT,
                 values: {
@@ -364,6 +433,50 @@ HuaweiVpcDiscovery.prototype = {
             }
         }
 
+        // EIP: one item per address, plus an Owns::Owned by relation to a
+        // FRESH LOCAL stub of the SAME cmdb_ci_virtualization_server
+        // placeholder HuaweiECSDiscovery.js already creates (see this
+        // file's header comment for the full real-PDI trail: ECS's own CI
+        // class isn't hardware-family, but this shared placeholder is).
+        // `alias` is Huawei's real display-name field for EIPs (not
+        // `name`, the one exception among this file's resource types) and
+        // is commonly empty, so this falls back to the public IP address
+        // itself.
+        var virtServerIndex = null;
+        if (eips.length) {
+            items.push({
+                className: this.CI_CLASS_VIRTUALIZATION_SERVER,
+                values: {
+                    name: 'Huawei Cloud - ' + this.region,
+                    short_description: 'Placeholder representing the Huawei Cloud hypervisor layer for ECS containment relationships'
+                }
+            });
+            virtServerIndex = items.length - 1;
+        }
+
+        for (var m = 0; m < eips.length; m++) {
+            var eip = eips[m];
+            items.push({
+                className: this.CI_CLASS_EIP,
+                values: {
+                    name: eip.alias || eip.public_ip_address || '',
+                    correlation_id: eip.id || '',
+                    ip_address: eip.public_ip_address || '',
+                    short_description: 'Huawei Cloud Elastic IP - discovered via custom REST integration',
+                    discovery_source: 'Huawei Cloud Custom Discovery'
+                }
+            });
+            var eipIndex = items.length - 1;
+            // parent=owner(virtualization server), child=owned(EIP) - the
+            // "intuitive" label-pair reading, matching CONTAINMENT_RELATION_TYPE's
+            // precedent, NOT HOSTING_RELATION_TYPE's "parent=dependent"
+            // convention (that one broke CONTAINMENT_RELATION_TYPE when tried
+            // there - see this file's CONTAINMENT_RELATION_TYPE usage comment).
+            // NOT yet real-PDI confirmed for this specific relation type -
+            // swap parent/child here first if IRE rejects it.
+            relations.push({ parent: String(virtServerIndex), child: String(eipIndex), type: this.OWNERSHIP_RELATION_TYPE });
+        }
+
         // createOrUpdateCI takes TWO arguments: a source-identifier string,
         // then the payload as a JSON-encoded STRING (not an object) - same
         // calling convention gotcha already documented in
@@ -384,7 +497,7 @@ HuaweiVpcDiscovery.prototype = {
         try {
             var payload = JSON.stringify({ items: items, relations: relations });
             var rawResult = sn_cmdb.IdentificationEngine.createOrUpdateCI('Huawei Cloud Custom Discovery', payload);
-            gs.info('[HuaweiVpcDiscovery] IRE result for ' + vpcs.length + ' vpc(s) + ' + subnets.length + ' subnet(s) + ' + securityGroups.length + ' security group(s): ' + rawResult);
+            gs.info('[HuaweiVpcDiscovery] IRE result for ' + vpcs.length + ' vpc(s) + ' + subnets.length + ' subnet(s) + ' + securityGroups.length + ' security group(s) + ' + eips.length + ' eip(s): ' + rawResult);
             return JSON.parse(rawResult);
         } catch (ex) {
             gs.error('[HuaweiVpcDiscovery] IRE exception: ' + ex.message);
@@ -395,8 +508,9 @@ HuaweiVpcDiscovery.prototype = {
         var vpcs = this.fetchVPCs();
         var subnets = this.fetchSubnets();
         var securityGroups = this.fetchSecurityGroups();
-        gs.info('[HuaweiVpcDiscovery] Fetched ' + vpcs.length + ' VPC(s), ' + subnets.length + ' subnet(s), and ' + securityGroups.length + ' security group(s) across all pages');
-        if (vpcs.length || subnets.length || securityGroups.length) this.reconcileCIs(vpcs, subnets, securityGroups);
+        var eips = this.fetchEips();
+        gs.info('[HuaweiVpcDiscovery] Fetched ' + vpcs.length + ' VPC(s), ' + subnets.length + ' subnet(s), ' + securityGroups.length + ' security group(s), and ' + eips.length + ' eip(s) across all pages');
+        if (vpcs.length || subnets.length || securityGroups.length || eips.length) this.reconcileCIs(vpcs, subnets, securityGroups, eips);
     },
 
     // ------------------------------------------------------------------

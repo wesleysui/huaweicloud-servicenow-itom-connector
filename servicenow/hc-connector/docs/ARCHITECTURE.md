@@ -245,6 +245,46 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        - cross-discovery-run relations aren't a solved pattern in this
        project yet (documented gap, matches ECS<->VPC/Subnet also not
        being related).
+     - **EIP: Terraform grounding AND Discovery both real-PDI verified.**
+       `HuaweiVpcDiscovery.js` extended to fetch `GET /v1/{project_id}/publicips`
+       (same v1 host/marker-pagination as VPC/Subnet, real-PDI confirmed)
+       and reconcile into `cmdb_ci_ip_address` (CI class from AWS's Service
+       Graph Connector docs). EIP's real OOTB containment rule turned out
+       to be genuinely different from every other resource in this file -
+       a real `MISSING_DEPENDENCY` error required an `Owns::Owned by`
+       relation to one of `cmdb_ci_hardware` / `cmdb_ci_cloud_database` /
+       `cmdb_ci_cloud_load_balancer` / `cmdb_ci_cloud_webserver`, not
+       `Hosted on::Hosts` to a datacenter placeholder like every prior
+       resource type. Two real, evidence-based checks (not guesses) before
+       picking a fix, per this project's "verify before assuming"
+       standard: (1) a real `sys_db_object.super_class` walk confirmed
+       ECS's own CI class (`cmdb_ci_vm_instance`) is NOT hardware-family
+       (`cmdb_ci_vm_instance -> cmdb_ci_vm_object -> cmdb_ci -> cmdb`),
+       ruling out any relation to the per-instance ECS CI; (2) the same
+       walk confirmed `cmdb_ci_virtualization_server` - the shared
+       placeholder `HuaweiECSDiscovery.js` already creates for its own
+       `Runs on::Runs` fix - IS hardware-family
+       (`cmdb_ci_virtualization_server -> cmdb_ci_server ->
+       cmdb_ci_computer -> cmdb_ci_hardware`). Fix: each EIP relates to a
+       freshly-built LOCAL stub of that same placeholder class/name
+       (matching `HuaweiECSDiscovery.js`'s own placeholder exactly) via
+       `Owns::Owned by` - IRE resolves the stub against the real,
+       already-committed CI from the separate ECS discovery run through
+       identification matching (the same mechanism AWS's own connector
+       relies on for cross-payload relationships), not a raw sys_id (still
+       confirmed impossible - see EVS above). This is the first real,
+       working example of a cross-discovery-run relationship in this
+       project - real-PDI verified end to end: `hasError:false`, the EIP
+       CI and the `Owns::Owned by` relation both inserted, and the
+       virtualization_server stub correctly matched (`NO_CHANGE`, not a
+       duplicate) against the real placeholder from the separate
+       `HuaweiECSDiscovery.js` run. Idempotent on a second run
+       (`insertCount:0, refreshCount:1`, everything `NO_CHANGE`). One
+       smaller correction along the way: `object_id` was removed from the
+       EIP item after real-PDI testing showed `cmdb_ci_ip_address` has no
+       such field (logged as a harmless "unknown field" warning, not an
+       error) - real identification uses an OOTB "IP Address" rule keyed
+       on `ip_address`+`netmask` instead.
      - Route Table / NAT Gateway / VPC Peering: `terraform/main.tf`
        provisions `huaweicloud_vpc_route_table` (a real `0.0.0.0/0` route
        with `type = "nat"`, nexthop the NAT gateway), `huaweicloud_nat_gateway`
@@ -271,11 +311,11 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        or could clean up; had to be deleted manually via console before
        `terraform destroy` could complete.
 
-     Remaining before Discovery work can start on EIP/Route Table/NAT
+     Remaining before Discovery work can start on Route Table/NAT
      Gateway/VPC Peering: real field samples (capture actual
      `describe`/`list` API responses) and the Discovery Script Include(s)
-     themselves. Security Group's and EVS's Discovery are both done (see
-     above).
+     themselves. Security Group's, EVS's, and EIP's Discovery are all done
+     (see above).
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
    grounding for all four is now real-PDI verified: `terraform/main.tf`
