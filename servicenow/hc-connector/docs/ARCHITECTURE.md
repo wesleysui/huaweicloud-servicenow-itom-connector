@@ -179,6 +179,37 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        `"bandwidth"` as the empirically-working config, not a confirmed
        explanation of why `"traffic"` failed — re-test `"traffic"` in
        isolation if that billing mode is ever needed.
+     - **EVS: Terraform grounding AND Discovery both real-PDI verified.**
+       New sibling Script Include `HuaweiEvsDiscovery.js` (own file, not an
+       extension of `HuaweiVpcDiscovery.js`, since EVS is a different API
+       host — `evs.{region}.myhuaweicloud.com`) fetches
+       `GET /v3/{project_id}/volumes/detail` (offset/limit pagination, no
+       total-count field — stops on a short page) and reconciles into
+       `cmdb_ci_storage_volume` (CI class from AWS's Service Graph
+       Connector docs). One real design question resolved via actual
+       testing, not assumption, per this project's standing rule to check
+       for a real platform mechanism before falling back to a workaround:
+       could `relations[]` reference an already-committed CI's real sys_id
+       (e.g. relate a volume directly to its attached ECS instance,
+       mirroring how AWS's connector relates resources discovered in
+       separate, temporally-independent payloads)? Real-PDI testing gave a
+       definitive **no** — ServiceNow's server-side payload parser
+       deserializes `relations[].child`/`.parent` as a Java `Integer`; a
+       real sys_id string thrown at it produced a real
+       `InvalidFormatException: Cannot deserialize value of type
+       java.lang.Integer from String ...` naming the exact field. This is
+       a hard type constraint, not a format quirk — the field can only
+       ever hold an array index, meaning relations are structurally
+       confined to items within the same `createOrUpdateCI()` call. Fixed
+       by dropping the ECS relation entirely and following Security
+       Group's same fallback: each volume relates only to a locally-built
+       `cmdb_ci_cloud_service_account`/`cmdb_ci_logical_datacenter`
+       placeholder pair via `Hosted on::Hosts` (the real OOTB containment
+       rule, confirmed via a real `MISSING_DEPENDENCY` error listing it as
+       one of three valid options). Real-PDI verified end to end: fetch
+       succeeded, volume CI inserted with `hasError:false`, confirmed
+       idempotent on a second run (`insertCount:0, refreshCount:1`, every
+       item/relation `NO_CHANGE`).
      - **Security Group: Terraform grounding AND Discovery both real-PDI
        verified.** `terraform/main.tf` provisions and attaches a real
        `huaweicloud_networking_secgroup` (+ rules) to the sandbox ECS
@@ -240,10 +271,11 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        or could clean up; had to be deleted manually via console before
        `terraform destroy` could complete.
 
-     Remaining before Discovery work can start on EVS/EIP/Route
-     Table/NAT Gateway/VPC Peering: real field samples (capture actual
+     Remaining before Discovery work can start on EIP/Route Table/NAT
+     Gateway/VPC Peering: real field samples (capture actual
      `describe`/`list` API responses) and the Discovery Script Include(s)
-     themselves. Security Group's Discovery is done (see above).
+     themselves. Security Group's and EVS's Discovery are both done (see
+     above).
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
    grounding for all four is now real-PDI verified: `terraform/main.tf`

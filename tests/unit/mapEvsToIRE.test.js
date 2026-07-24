@@ -1,11 +1,9 @@
-const { mapEvsToIREItem, getAttachedServerId, buildIREPayload, CI_CLASS_EVS, ATTACHED_RELATION_TYPE } =
+const { mapEvsToIREItem, getAttachedServerId, buildIREPayload, CI_CLASS_EVS, CI_CLASS_LOGICAL_DATACENTER, CI_CLASS_CLOUD_SERVICE_ACCOUNT, HOSTING_RELATION_TYPE } =
   require('../../servicenow/discovery/lib/mapEvsToIRE');
 const evsResponse = require('../../servicenow/discovery/fixtures/evs-volume-list-response.json');
 
 // Documented-shape example built from Huawei's official EVS API docs and
-// real resource IDs from earlier real-PDI sessions - not yet a live
-// capture of THIS discovery flow specifically (EVS Discovery not yet
-// real-PDI tested). Replace with a fresh real capture once tested.
+// real resource IDs from earlier real-PDI sessions.
 
 describe('mapEvsToIREItem', () => {
   it('maps a Huawei EVS volume object to a CI_CLASS_EVS IRE item', () => {
@@ -42,42 +40,30 @@ describe('getAttachedServerId', () => {
 });
 
 describe('buildIREPayload', () => {
-  it('handles an empty volume list without throwing', () => {
-    expect(buildIREPayload([], {})).toEqual({ items: [], relations: [], unmatchedServerIds: [] });
-    expect(buildIREPayload(undefined, undefined)).toEqual({ items: [], relations: [], unmatchedServerIds: [] });
+  it('returns empty items/relations for an empty volume list, with no placeholders', () => {
+    expect(buildIREPayload([], 'af-south-1', 'sandbox-1')).toEqual({ items: [], relations: [] });
+    expect(buildIREPayload(undefined, 'af-south-1', 'sandbox-1')).toEqual({ items: [], relations: [] });
   });
 
-  it('relates an attached volume to its ECS instance by REAL sys_id, not an array index', () => {
-    const volumes = [evsResponse.volumes[0]]; // attached to server_id a1dcb4eb-...
-    const ecsCiSysIdByServerId = { 'a1dcb4eb-2a08-4678-a385-6ef12beb2a3d': 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4' };
-    const payload = buildIREPayload(volumes, ecsCiSysIdByServerId);
-    expect(payload.items).toHaveLength(1);
+  it('builds the account/datacenter placeholder pair and relates every volume to the datacenter', () => {
+    const volumes = [{ id: 'v-a', name: 'a' }, { id: 'v-b', name: 'b' }];
+    const payload = buildIREPayload(volumes, 'af-south-1', 'sandbox-1');
+    // items: [account(0), datacenter(1), v-a(2), v-b(3)]
+    expect(payload.items).toHaveLength(4);
+    expect(payload.items[0].className).toBe(CI_CLASS_CLOUD_SERVICE_ACCOUNT);
+    expect(payload.items[1].className).toBe(CI_CLASS_LOGICAL_DATACENTER);
+    expect(payload.items[2]).toEqual(mapEvsToIREItem(volumes[0]));
+    expect(payload.items[3]).toEqual(mapEvsToIREItem(volumes[1]));
     expect(payload.relations).toEqual([
-      { parent: '0', child: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4', type: ATTACHED_RELATION_TYPE }
+      { parent: '1', child: '0', type: HOSTING_RELATION_TYPE },
+      { parent: '2', child: '1', type: HOSTING_RELATION_TYPE },
+      { parent: '3', child: '1', type: HOSTING_RELATION_TYPE }
     ]);
-    expect(payload.unmatchedServerIds).toEqual([]);
   });
 
-  it('builds no relation for an unattached volume, without treating it as an error', () => {
-    const volumes = [evsResponse.volumes[1]]; // no attachments
-    const payload = buildIREPayload(volumes, {});
-    expect(payload.items).toHaveLength(1);
-    expect(payload.relations).toEqual([]);
-    expect(payload.unmatchedServerIds).toEqual([]);
-  });
-
-  it('reports a volume attached to a server_id not in ecsCiSysIdByServerId as unmatched, without dropping or throwing', () => {
-    const volumes = [evsResponse.volumes[0]];
-    const payload = buildIREPayload(volumes, {}); // no ECS CIs known
-    expect(payload.items).toHaveLength(1); // the volume still gets a CI item
-    expect(payload.relations).toEqual([]);
-    expect(payload.unmatchedServerIds).toEqual(['a1dcb4eb-2a08-4678-a385-6ef12beb2a3d']);
-  });
-
-  it('maps every volume in the fixture to an item, in order', () => {
-    const payload = buildIREPayload(evsResponse.volumes, {});
-    expect(payload.items).toHaveLength(evsResponse.volumes.length);
-    expect(payload.items[0]).toEqual(mapEvsToIREItem(evsResponse.volumes[0]));
-    expect(payload.items[1]).toEqual(mapEvsToIREItem(evsResponse.volumes[1]));
+  it('identifies the placeholders by region/accountId', () => {
+    const payload = buildIREPayload([{ id: 'v-a', name: 'a' }], 'af-south-1', 'sandbox-1');
+    expect(payload.items[0].values.account_id).toBe('sandbox-1');
+    expect(payload.items[1].values.region).toBe('af-south-1');
   });
 });

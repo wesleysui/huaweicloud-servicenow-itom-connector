@@ -9,22 +9,19 @@
 // either existing one (unlike Security Group, which shared VPC's exact
 // host/API family and could be folded into HuaweiVpcDiscovery.js).
 //
-// THE HARD PART: relating an EVS volume to the ECS instance it's attached
-// to. Every other cross-class relation in this project references
-// items[] by ARRAY INDEX, which only resolves within one
-// createOrUpdateCI() call - doesn't work across two separate discovery
-// runs (EVS here, ECS in HuaweiECSDiscovery.js). Security Group hit this
-// same wall and gave up on its ECS relation. This file instead passes the
-// ECS CI's REAL, already-committed sys_id (looked up via GlideRecord on
-// correlation_id - see service-graph/HcConnectorEvsSync.js) directly as
-// the relation's child value, instead of an index. This mirrors how
-// AWS's own Service Graph Connector actually works: AWS Config resources
-// carry relationship data as part of their own record, delivered to
-// ServiceNow across separate, temporally-independent payloads, and IRE
-// resolves relations to already-existing CIs via identification - the
-// same mechanism this file is testing, not an invented workaround. NOT
-// YET CONFIRMED whether IRE's relations[] accepts a real sys_id in place
-// of an index - see lib/mapEvsToIRE.js's header comment.
+// RELATION TO ECS: TESTED, CONFIRMED NOT POSSIBLE. Tried passing the ECS
+// CI's real, already-committed sys_id directly as a relations[]
+// parent/child value (instead of an array index) - real-PDI testing found
+// ServiceNow's server-side payload parser deserializes relations[].child/
+// .parent as a Java Integer; a real sys_id string throws
+// InvalidFormatException at the JSON-parsing layer, a hard type
+// constraint, not a guessable-around format issue. Confirms this
+// project's index-only relations convention is a real platform
+// limitation, matching Security Group's identical finding for its own
+// ECS relation attempt. See lib/mapEvsToIRE.js's header comment for the
+// full trail. EVS ships as a standalone CI instead, related only to its
+// own local cloud_service_account/logical_datacenter placeholder pair
+// (same pattern already proven for VPC).
 //
 // Auth: identical AK/SK "SDK-HMAC-SHA256" signing scheme as
 // HuaweiECSDiscovery.js - see that file's header comment for the full
@@ -41,10 +38,13 @@
 // total `count` field (per Huawei's official docs), so pagination stops
 // on a short page instead - see lib/evsPagination.js.
 //
-// CI class (CI_CLASS_EVS below) is a starting hypothesis from AWS's
-// Service Graph Connector docs (cmdb_ci_storage_volume), NOT YET real-PDI
-// confirmed - see lib/mapEvsToIRE.js's header comment for the full
-// research trail.
+// CI class (CI_CLASS_EVS below) is real-PDI confirmed to exist
+// (cmdb_ci_storage_volume, sourced from AWS's Service Graph Connector
+// docs) - a real MISSING_DEPENDENCY error named it, listing three
+// possible containment/hosting rules; this uses
+// Hosted on::Hosts -> cmdb_ci_logical_datacenter, the same
+// class/relation type already proven for VPC. See lib/mapEvsToIRE.js's
+// header comment for the full research trail.
 //
 // Prerequisites: same System Properties as HuaweiECSDiscovery.js
 // (x_hwc.itom.access_key/.secret_key, or the account-scoped
@@ -54,13 +54,16 @@
 var HuaweiEvsDiscovery = Class.create();
 HuaweiEvsDiscovery.prototype = {
     CI_CLASS_EVS: 'cmdb_ci_storage_volume',
-    ATTACHED_RELATION_TYPE: 'Attached to::Attaches', // UNCONFIRMED - verify against real cmdb_rel_type
+    CI_CLASS_LOGICAL_DATACENTER: 'cmdb_ci_logical_datacenter',
+    CI_CLASS_CLOUD_SERVICE_ACCOUNT: 'cmdb_ci_cloud_service_account',
+    HOSTING_RELATION_TYPE: 'Hosted on::Hosts',
 
     // config is OPTIONAL and additive, same shape as HuaweiECSDiscovery's -
     // see that file's initialize() comment for the full rationale.
     initialize: function(config) {
         config = config || {};
         var scopePrefix = gs.getCurrentScopeName() + '.';
+        this.accountId       = config.accountId || null; // used only to identify the cmdb_ci_cloud_service_account placeholder in reconcileCIs()
         this.region          = config.region || gs.getProperty(scopePrefix + 'x_hwc.itom.region', 'cn-north-4');
         this.projectId       = config.projectId || gs.getProperty(scopePrefix + 'x_hwc.itom.project_id');
         this.pageLimit       = config.pageLimit != null ? parseInt(config.pageLimit, 10) : parseInt(gs.getProperty(scopePrefix + 'x_hwc.itom.page_limit', '100'), 10);
@@ -148,18 +151,38 @@ HuaweiEvsDiscovery.prototype = {
     // ------------------------------------------------------------------
     // Mirrors lib/mapEvsToIRE.js's buildIREPayload() inline (ServiceNow
     // scoped scripts cannot require() - keep both in sync when changing the
-    // mapping rules). ecsCiSysIdByServerId is supplied by the caller
-    // (service-graph/HcConnectorEvsSync.js), built via a real GlideRecord
-    // lookup against cmdb_ci_vm_instance.correlation_id - see this file's
-    // header comment for why a real sys_id, not an array index.
-    reconcileCIs: function(volumes, ecsCiSysIdByServerId) {
+    // mapping rules). No relation to ECS - see this file's header comment
+    // for the real, confirmed reason. Every volume relates instead to a
+    // local cloud_service_account/logical_datacenter placeholder pair,
+    // same pattern as VPC's (mapVpcSubnetToIRE.js).
+    reconcileCIs: function(volumes) {
         volumes = volumes || [];
-        ecsCiSysIdByServerId = ecsCiSysIdByServerId || {};
         if (!volumes.length) return;
 
         var items = [];
         var relations = [];
-        var unmatchedServerIds = [];
+
+        items.push({
+            className: this.CI_CLASS_CLOUD_SERVICE_ACCOUNT,
+            values: {
+                name: 'Huawei Cloud Account - ' + this.accountId,
+                account_id: this.accountId,
+                datacenter_type: this.CI_CLASS_LOGICAL_DATACENTER,
+                short_description: 'Placeholder representing the Huawei Cloud account for logical-datacenter containment relationships'
+            }
+        });
+        var accountIndex = items.length - 1;
+
+        items.push({
+            className: this.CI_CLASS_LOGICAL_DATACENTER,
+            values: {
+                name: 'Huawei Cloud - ' + this.region,
+                region: this.region,
+                short_description: 'Placeholder representing the Huawei Cloud region for EVS containment relationships'
+            }
+        });
+        var datacenterIndex = items.length - 1;
+        relations.push({ parent: String(datacenterIndex), child: String(accountIndex), type: this.HOSTING_RELATION_TYPE });
 
         for (var i = 0; i < volumes.length; i++) {
             var v = volumes[i];
@@ -174,25 +197,7 @@ HuaweiEvsDiscovery.prototype = {
                 }
             });
             var itemIndex = items.length - 1;
-
-            var attachments = v.attachments || [];
-            var serverId = attachments.length ? (attachments[0].server_id || null) : null;
-            if (!serverId) continue; // unattached volume - no relation to build, not an error
-
-            var ecsSysId = ecsCiSysIdByServerId[serverId];
-            if (!ecsSysId) {
-                unmatchedServerIds.push(serverId);
-                continue;
-            }
-            // parent = the dependent item (the volume, via its item INDEX in
-            // this payload), child = the real, already-existing ECS CI it
-            // depends on (via its real sys_id - NOT an index). This is the
-            // untested hypothesis this whole file exists to verify.
-            relations.push({ parent: String(itemIndex), child: ecsSysId, type: this.ATTACHED_RELATION_TYPE });
-        }
-
-        if (unmatchedServerIds.length) {
-            gs.warn('[HuaweiEvsDiscovery] ' + unmatchedServerIds.length + ' volume(s) attached to an ECS instance not yet known to this instance: ' + unmatchedServerIds.join(', '));
+            relations.push({ parent: String(itemIndex), child: String(datacenterIndex), type: this.HOSTING_RELATION_TYPE });
         }
 
         // createOrUpdateCI takes TWO arguments: a source-identifier string,
@@ -212,7 +217,7 @@ HuaweiEvsDiscovery.prototype = {
     run: function() {
         var volumes = this.fetchVolumes();
         gs.info('[HuaweiEvsDiscovery] Fetched ' + volumes.length + ' volume(s) across all pages');
-        if (volumes.length) this.reconcileCIs(volumes, {});
+        if (volumes.length) this.reconcileCIs(volumes);
     },
 
     // ------------------------------------------------------------------

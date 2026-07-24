@@ -11,9 +11,13 @@
 > string). Scope narrowed from the original "VPC/Subnet/EVS/EIP" wording —
 > EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
 > Phase 2C — Terraform grounding for all six is real-PDI verified;
-> **Security Group Discovery is also real-PDI verified** (fetch, real CI
-> class with a working OOTB Identification Rule, containment relation
-> corrected after real testing, idempotent on a second run). Phase 1
+> **Security Group and EVS Discovery are also real-PDI verified** (fetch,
+> real CI class with a working OOTB Identification Rule, containment
+> relation corrected after real testing, idempotent on a second run; EVS
+> additionally confirmed that IRE's `relations[]` cannot hold a real CI
+> sys_id across separate discovery runs — hard-typed as a Java `Integer`
+> server-side — so it ships as a standalone CI with no ECS relation, same
+> as Security Group). Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
 > parameter in Phase 2A (falls back to its original System-Property
@@ -80,13 +84,14 @@ restrictions already solved this session for Discovery/Event Management.
 
 ## What Phase 2B adds on top of Phase 2A
 
-Source-complete and unit-tested, **not yet real-PDI verified**. Scope
-narrowed from the roadmap's original "VPC/Subnet/EVS/EIP" wording —
-EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
-Phase 2C. All six now have real-PDI-verified Terraform grounding
-(`terraform/main.tf`); **Security Group Discovery is also real-PDI
-verified** (folded into `HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`
-alongside VPC/Subnet) - see the Phase 2C section below for the real
+Source-complete and real-PDI verified. Scope narrowed from the roadmap's
+original "VPC/Subnet/EVS/EIP" wording — EVS/EIP/Security Group/Route
+Table/NAT Gateway/VPC Peering deferred to Phase 2C. All six now have
+real-PDI-verified Terraform grounding (`terraform/main.tf`); **Security
+Group and EVS Discovery are also real-PDI verified** (Security Group
+folded into `HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js` alongside
+VPC/Subnet; EVS as its own sibling `HuaweiEvsDiscovery.js`/
+`HcConnectorEvsSync.js`) - see the Phase 2C section below for the real
 gotchas found and fixed.
 
 - **`servicenow/discovery/HuaweiVpcDiscovery.js`** — a new sibling to
@@ -250,8 +255,8 @@ Verify the build tools directly:
 ```bash
 node servicenow/hc-connector/scripts/generate-table-docs.js
 node servicenow/hc-connector/scripts/generate-provision-script.js
-node servicenow/hc-connector/scripts/build-script-include.js        # regenerates both orchestrators' generated output
-node servicenow/hc-connector/scripts/check-mirror-drift.js          # 3 mirrored pairs (2 crypto + 1 severity map)
+node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all three orchestrators' generated output
+node servicenow/hc-connector/scripts/check-mirror-drift.js          # 4 mirrored pairs (3 crypto + 1 severity map)
 ```
 
 ## What's still not included after Phase 2B
@@ -260,16 +265,15 @@ node servicenow/hc-connector/scripts/check-mirror-drift.js          # 3 mirrored
   exercised against a real ServiceNow PDI + real Huawei Cloud sandbox
   account (Phase 2A: HC2/HC3/HC4 directly, HC1/HC5 on lighter evidence;
   Phase 2B: HC6–HC10 all directly).
-- **EVS/EIP/Route Table/NAT Gateway/VPC Peering Discovery are Phase 2C, not
+- **EIP/Route Table/NAT Gateway/VPC Peering Discovery are Phase 2C, not
   this phase** — deliberately deferred, not silently dropped. Their
   Terraform grounding is real-PDI verified; Discovery scripts for them
-  haven't been written yet. **Security Group Discovery, also Phase 2C, IS
-  done and real-PDI verified** (see above).
+  haven't been written yet. **Security Group and EVS Discovery, also Phase
+  2C, ARE done and real-PDI verified** (see above).
 - No working IAM Agency authentication (interface stub only — needs a real
   Huawei Organizations account).
 - No deployed event gateway (FunctionGraph/API Gateway) — architecture doc
   + envelope logic only, needs a real account to build/verify against.
-- No new resource-type discovery (VPC/EVS/EIP/etc.) — that's Phase 2B.
 - No `hc_connector_operator` role — deliberately deferred, see
   `docs/PERMISSIONS.md`.
 - **No one-click distribution yet** — Store publish requires ServiceNow

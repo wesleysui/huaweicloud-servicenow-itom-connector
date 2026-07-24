@@ -3,46 +3,55 @@
  *
  * CI class chosen by referencing AWS's official Service Graph Connector
  * (per this project's standing rule): AWS discovers EBS volumes into
- * `cmdb_ci_storage_volume`, related to the owning EC2 instance
- * (`cmdb_ci_vm_instance`) via an "Attached to" relationship. NOT yet
- * confirmed against this project's own real PDI - treat as a starting
- * hypothesis, the same way every other CI class in this project needed
- * real-PDI correction before landing (VPC/Subnet took 2 rounds; Security
- * Group's class was right first try but its relation type was wrong).
+ * `cmdb_ci_storage_volume`. Real-PDI confirmed to exist on this instance
+ * (a real MISSING_DEPENDENCY error named it).
+ *
+ * RELATION TO ECS: TESTED AND CONFIRMED NOT POSSIBLE via this project's
+ * cross-discovery-run approach. The original design tried passing the
+ * ECS CI's real, already-committed sys_id directly as a relations[]
+ * parent/child value (instead of an array index), reasoning that IRE
+ * might support it the way AWS's own connector relates resources
+ * discovered across separate, temporally-independent payloads. Real-PDI
+ * testing gave a DEFINITIVE, not-just-a-format-issue answer: ServiceNow's
+ * server-side payload parser deserializes `relations[].child` (and
+ * `.parent`) as a Java `Integer` - a real sys_id string
+ * ("18268655625a4f10344044c98a8a5cb9") throws
+ * `InvalidFormatException: Cannot deserialize value of type
+ * java.lang.Integer from String ...`. This is a hard type constraint at
+ * the JSON deserialization layer, not a guessable-around quirk - the
+ * field can ONLY hold an array index. Confirms this project's existing
+ * convention (index-only relations, one createOrUpdateCI call per
+ * relation) is a real platform limitation, not just a self-imposed one -
+ * matches Security Group's same finding for its ECS relation.
+ *
+ * So EVS ships as a standalone CI, same as Security Group: no relation to
+ * ECS. It DOES need a relation to satisfy its own OOTB containment rule
+ * though - the real MISSING_DEPENDENCY error listed three options
+ * (`Contained by -> cmdb_ci_computer`, `Owned by -> cmdb_ci_storage_cluster`,
+ * `Hosted on -> cmdb_ci_logical_datacenter`); this reuses
+ * `Hosted on::Hosts -> cmdb_ci_logical_datacenter`, the same placeholder
+ * class/relation type already proven for VPC (mapVpcSubnetToIRE.js). Since
+ * EVS is discovered in its own separate call, it builds its OWN local
+ * cloud_service_account/logical_datacenter placeholder pair rather than
+ * referencing VPC's - not yet confirmed whether cmdb_ci_logical_datacenter
+ * itself needs the same account-parent requirement VPC's did; build it in
+ * defensively (cheap, and consistent with the proven pattern) and let
+ * real-PDI testing confirm or correct.
  *
  * Field names are real, from Huawei's official EVS API documentation
- * (ListVolumes / "查询所有云硬盘详情"): id, name, size, status,
- * volume_type, availability_zone, and a nested attachments[] array
- * (server_id, device, attached_at, attachment_id, host_name, volume_id).
- *
- * RELATION TO ECS IS THE HARD PART. EVS is discovered in its own separate
- * Script Include/orchestrator run, not combined with HuaweiECSDiscovery.js
- * (that file is real-PDI verified and intentionally left untouched - same
- * constraint that already applied to Security Group). Every other
- * cross-class relation in this project references items[] by ARRAY INDEX,
- * which only resolves within one createOrUpdateCI() call - doesn't work
- * across two separate runs. This module tries a DIFFERENT, still-native
- * mechanism instead of giving up on the relation (like Security Group did
- * for its ECS relation): passing the ECS CI's REAL, already-committed
- * sys_id (looked up via GlideRecord on correlation_id - the same
- * `_lookupCiByCorrelationId` pattern HcConnectorVpcSync.js already uses)
- * directly as the relation's parent/child value, instead of a positional
- * index. NOT YET CONFIRMED whether IRE's relations[] actually accepts a
- * real sys_id in place of an index - this is a genuine, testable
- * hypothesis about a real platform capability, not an invented workaround.
- * If real-PDI testing confirms it works, this becomes the first proven
- * cross-discovery-run relation pattern in this project (reusable for EIP
- * and future resource types with the same problem). If it fails, EVS ships
- * as a standalone CI with no ECS relation, matching Security Group's
- * precedent, and the finding gets documented either way.
+ * (ListVolumes / "查询所有云硬盘详情") and a real captured response:
+ * id, name, size, status, volume_type, availability_zone, and a nested
+ * attachments[] array (server_id, device, attached_at, attachment_id,
+ * host_name, volume_id).
  */
 
 var CI_CLASS_EVS = 'cmdb_ci_storage_volume';
-var ATTACHED_RELATION_TYPE = 'Attached to::Attaches'; // UNCONFIRMED - verify against real cmdb_rel_type on real-PDI testing, same as every other relation type in this project
+var CI_CLASS_LOGICAL_DATACENTER = 'cmdb_ci_logical_datacenter';
+var CI_CLASS_CLOUD_SERVICE_ACCOUNT = 'cmdb_ci_cloud_service_account';
+var HOSTING_RELATION_TYPE = 'Hosted on::Hosts';
 
 /**
- * Map one Huawei EVS volume object (from GET .../cloudvolumes or
- * /v3/{project_id}/volumes) into an IRE `items[]` entry.
+ * Map one Huawei EVS volume object into an IRE `items[]` entry.
  * @param {Object} volume
  * @returns {Object}
  */
@@ -61,10 +70,9 @@ function mapEvsToIREItem(volume) {
 
 /**
  * Extracts the attached ECS server_id from a volume's `attachments[]`
- * array, or null if the volume isn't attached to anything. Huawei's real
- * API returns attachments as an array (schema allows multiple), but a
- * volume attached via the standard single-attach flow only ever has 0 or 1
- * entries in practice - takes the first if present.
+ * array, or null if unattached. Not used for a relation (see this file's
+ * header comment - cross-run relations by sys_id don't work), kept
+ * available for callers that want to log/report it.
  * @param {Object} volume
  * @returns {string|null}
  */
@@ -75,50 +83,53 @@ function getAttachedServerId(volume) {
 }
 
 /**
- * Builds the EVS portion of an IRE payload: one item per volume, plus an
- * Attached to::Attaches relation to its ECS instance's REAL sys_id - see
- * this file's header comment for why a real sys_id, not an array index.
- * ecsCiSysIdByServerId is supplied by the caller (built via a real
- * GlideRecord lookup, not by this pure function).
- *
- * A volume attached to a server_id not present in ecsCiSysIdByServerId
- * (not yet discovered, or discovery order raced) is reported in
- * unmatchedServerIds instead of silently dropped - same convention as
- * mapVpcSubnetToIRE.js's unmatchedSubnetIds.
- *
+ * Builds the placeholder cloud_service_account/logical_datacenter pair and
+ * one item per volume, all related via HOSTING_RELATION_TYPE, mirroring
+ * mapVpcSubnetToIRE.js's same-named placeholders (built independently
+ * here, not shared across the separate IRE calls - see this file's header
+ * comment).
  * @param {Object[]} volumes
- * @param {Object.<string, string>} ecsCiSysIdByServerId - Huawei ECS server_id -> real cmdb_ci_vm_instance sys_id
- * @returns {{items: Object[], relations: Object[], unmatchedServerIds: string[]}}
+ * @param {string} region - used to identify the shared logical-datacenter placeholder
+ * @param {string} accountId - used to identify the shared cloud-service-account placeholder
+ * @returns {{items: Object[], relations: Object[]}}
  */
-function buildIREPayload(volumes, ecsCiSysIdByServerId) {
+function buildIREPayload(volumes, region, accountId) {
   volumes = volumes || [];
-  ecsCiSysIdByServerId = ecsCiSysIdByServerId || {};
 
   var items = [];
   var relations = [];
-  var unmatchedServerIds = [];
+
+  if (!volumes.length) return { items: items, relations: relations };
+
+  items.push({
+    className: CI_CLASS_CLOUD_SERVICE_ACCOUNT,
+    values: {
+      name: 'Huawei Cloud Account - ' + accountId,
+      account_id: accountId,
+      datacenter_type: CI_CLASS_LOGICAL_DATACENTER,
+      short_description: 'Placeholder representing the Huawei Cloud account for logical-datacenter containment relationships'
+    }
+  });
+  var accountIndex = items.length - 1;
+
+  items.push({
+    className: CI_CLASS_LOGICAL_DATACENTER,
+    values: {
+      name: 'Huawei Cloud - ' + region,
+      region: region,
+      short_description: 'Placeholder representing the Huawei Cloud region for EVS containment relationships'
+    }
+  });
+  var datacenterIndex = items.length - 1;
+  relations.push({ parent: String(datacenterIndex), child: String(accountIndex), type: HOSTING_RELATION_TYPE });
 
   volumes.forEach(function (volume) {
     items.push(mapEvsToIREItem(volume));
     var itemIndex = items.length - 1;
-
-    var serverId = getAttachedServerId(volume);
-    if (!serverId) return; // unattached volume - no relation to build, not an error
-
-    var ecsSysId = ecsCiSysIdByServerId[serverId];
-    if (!ecsSysId) {
-      unmatchedServerIds.push(serverId);
-      return;
-    }
-    // parent = the dependent item (the volume, via its item INDEX in this
-    // payload), child = the real, already-existing ECS CI it depends on
-    // (via its real sys_id - NOT an index). Direction guess mirrors
-    // HuaweiECSDiscovery.js's "Runs on::Runs" (parent=dependent, child=host)
-    // - unconfirmed for this relation type, verify on real-PDI testing.
-    relations.push({ parent: String(itemIndex), child: ecsSysId, type: ATTACHED_RELATION_TYPE });
+    relations.push({ parent: String(itemIndex), child: String(datacenterIndex), type: HOSTING_RELATION_TYPE });
   });
 
-  return { items: items, relations: relations, unmatchedServerIds: unmatchedServerIds };
+  return { items: items, relations: relations };
 }
 
 module.exports = {
@@ -126,5 +137,7 @@ module.exports = {
   getAttachedServerId: getAttachedServerId,
   buildIREPayload: buildIREPayload,
   CI_CLASS_EVS: CI_CLASS_EVS,
-  ATTACHED_RELATION_TYPE: ATTACHED_RELATION_TYPE
+  CI_CLASS_LOGICAL_DATACENTER: CI_CLASS_LOGICAL_DATACENTER,
+  CI_CLASS_CLOUD_SERVICE_ACCOUNT: CI_CLASS_CLOUD_SERVICE_ACCOUNT,
+  HOSTING_RELATION_TYPE: HOSTING_RELATION_TYPE
 };

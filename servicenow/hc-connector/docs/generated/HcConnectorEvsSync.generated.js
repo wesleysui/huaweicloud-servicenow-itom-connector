@@ -15,19 +15,13 @@
 // refactor of either - both are real-PDI verified and intentionally left
 // untouched.
 //
-// THE ONE NEW THING vs. every prior orchestrator: builds a
-// server_id -> real ECS CI sys_id lookup map from THIS account/region's
-// already-committed HC Resource Sync State rows (resource_type='ecs'),
-// and passes it to HuaweiEvsDiscovery.reconcileCIs() so it can relate each
-// volume to its ECS instance using a REAL sys_id instead of an array
-// index - see servicenow/discovery/HuaweiEvsDiscovery.js's header comment
-// for why this is necessary and what it's testing. HC Resource Sync State
-// (not a raw cmdb_ci_vm_instance query) is used as the source for this
-// lookup because it's already this project's own established "what did we
-// discover and what CI does it map to" table - one query instead of one
-// GlideRecord lookup per volume.
-//
-// Otherwise identical structure to HcConnectorEcsSync.js: for every active
+// No relation to ECS is attempted (see
+// servicenow/discovery/HuaweiEvsDiscovery.js's header comment for the
+// real, confirmed reason: relations[].parent/child are hard-typed as a
+// Java Integer server-side, so a real ECS CI sys_id can't be used in
+// place of an array index - a genuine platform limitation, tested and
+// confirmed, not a guess). Structure is otherwise identical to
+// HcConnectorEcsSync.js: for every active
 // HC Cloud Region under every active HC Cloud Account, resolve credentials,
 // fetch, reconcile via IRE, upsert HC Resource Sync State, retire on
 // disappearance - only reaching retirement if fetch+reconcile both
@@ -472,7 +466,6 @@ HcConnectorEvsSync.prototype = {
         this.SYNC_STATE_TABLE = this.SCOPE + '_hc_resource_sync_state';
         this.CONFIG_TABLE = this.SCOPE + '_hc_connector_config';
         this.RESOURCE_TYPE = 'evs';
-        this.ECS_RESOURCE_TYPE = 'ecs';
     },
 
     // ------------------------------------------------------------------
@@ -573,10 +566,8 @@ HcConnectorEvsSync.prototype = {
     _reconcileAndUpsert: function(account, region, volumes) {
         var self = this;
 
-        var ecsCiSysIdByServerId = this._getEcsCiSysIdByServerId(account.sys_id, region.sys_id);
-
-        var disco = new HuaweiEvsDiscovery({ region: region.region });
-        var result = disco.reconcileCIs(volumes, ecsCiSysIdByServerId);
+        var disco = new HuaweiEvsDiscovery({ region: region.region, accountId: account.account_id });
+        var result = disco.reconcileCIs(volumes);
 
         if (!result) {
             throw new Error('reconcileCIs returned no result - the IRE call likely failed, see the prior gs.error log from HuaweiEvsDiscovery');
@@ -602,25 +593,6 @@ HcConnectorEvsSync.prototype = {
         this._applyTransitions(plan.toTransition);
 
         return { plan: plan, summary: summarizePlan(plan) };
-    },
-
-    // Builds Huawei ECS server_id -> real cmdb_ci_vm_instance sys_id, from
-    // this account/region's own HC Resource Sync State rows (resource_type
-    // ='ecs') - one query instead of one lookup per volume. See this file's
-    // header comment for why HC Resource Sync State, not a raw
-    // cmdb_ci_vm_instance query.
-    _getEcsCiSysIdByServerId: function(accountSysId, regionSysId) {
-        var map = {};
-        var gr = new GlideRecord(this.SYNC_STATE_TABLE);
-        gr.addQuery('account', accountSysId);
-        gr.addQuery('region', regionSysId);
-        gr.addQuery('resource_type', this.ECS_RESOURCE_TYPE);
-        gr.addNotNullQuery('ci');
-        gr.query();
-        while (gr.next()) {
-            map[gr.getValue('native_key')] = gr.getValue('ci');
-        }
-        return map;
     },
 
     _lookupCiByCorrelationId: function(correlationId) {
