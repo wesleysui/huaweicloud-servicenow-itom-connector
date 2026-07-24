@@ -1,11 +1,12 @@
-const { mapSecurityGroupToIREItem, buildIREPayload, CI_CLASS_SECURITY_GROUP, CONTAINMENT_RELATION_TYPE } =
+const { mapSecurityGroupToIREItem, buildIREPayload, CI_CLASS_SECURITY_GROUP, HOSTING_RELATION_TYPE } =
   require('../../servicenow/discovery/lib/mapSecurityGroupToIRE');
 const securityGroupResponse = require('../../servicenow/discovery/fixtures/security-group-list-response.json');
 
-// The fixture is a documented-shape example built from Huawei's official
-// VPC v3 API docs, not yet a live capture (unlike ces-alarm-payload.json) -
-// replace with a real captured response once this is deployed and tested
-// against a real PDI/sandbox.
+// The fixture is a REAL captured response from a live Huawei Cloud sandbox
+// account (project_id redacted - it identifies the real account), captured
+// during Phase 2C real-PDI testing. Note it has NO vpc_id field, unlike
+// what the official API docs' examples would suggest - see
+// lib/mapSecurityGroupToIRE.js's header comment for why.
 
 describe('mapSecurityGroupToIREItem', () => {
   it('maps a Huawei Security Group object to a CI_CLASS_SECURITY_GROUP IRE item', () => {
@@ -35,45 +36,30 @@ describe('mapSecurityGroupToIREItem', () => {
 
 describe('buildIREPayload', () => {
   it('handles an empty security group list without throwing', () => {
-    expect(buildIREPayload([], {})).toEqual({ items: [], relations: [], unmatchedVpcIds: [] });
-    expect(buildIREPayload(undefined, undefined)).toEqual({ items: [], relations: [], unmatchedVpcIds: [] });
+    expect(buildIREPayload([], 1)).toEqual({ items: [], relations: [] });
+    expect(buildIREPayload(undefined, undefined)).toEqual({ items: [], relations: [] });
   });
 
-  it('relates a security group to its parent VPC by array index when the VPC is in vpcIndexById', () => {
-    const sgs = [{ id: 'sg-a', name: 'a', vpc_id: 'vpc-a' }];
-    const vpcIndexById = { 'vpc-a': 2 }; // e.g. items[2] is the VPC from the same combined run
-    const payload = buildIREPayload(sgs, vpcIndexById);
+  it('relates every security group to the shared datacenter placeholder by index, via Hosted on::Hosts', () => {
+    const sgs = [{ id: 'sg-a', name: 'a' }, { id: 'sg-b', name: 'b' }];
+    const payload = buildIREPayload(sgs, 1); // e.g. items[1] is the shared datacenter placeholder from this run
+    // items: [sg-a(0), sg-b(1)] - datacenterIndex(1) refers to a DIFFERENT run's items[] array
+    expect(payload.items).toHaveLength(2);
+    expect(payload.relations).toEqual([
+      { parent: '0', child: '1', type: HOSTING_RELATION_TYPE },
+      { parent: '1', child: '1', type: HOSTING_RELATION_TYPE }
+    ]);
+  });
+
+  it('omits relations entirely when datacenterIndex is null (no VPCs discovered this run)', () => {
+    const sgs = [{ id: 'sg-a', name: 'a' }];
+    const payload = buildIREPayload(sgs, null);
     expect(payload.items).toHaveLength(1);
-    expect(payload.relations).toEqual([
-      { parent: '2', child: '0', type: CONTAINMENT_RELATION_TYPE }
-    ]);
-    expect(payload.unmatchedVpcIds).toEqual([]);
-  });
-
-  it('reports a security group whose vpc_id matches no VPC in vpcIndexById as unmatched, without dropping or throwing', () => {
-    const sgs = [{ id: 'sg-a', name: 'a', vpc_id: 'vpc-missing' }];
-    const payload = buildIREPayload(sgs, {});
-    expect(payload.items).toHaveLength(1); // the security group still gets a CI item
     expect(payload.relations).toEqual([]);
-    expect(payload.unmatchedVpcIds).toEqual(['vpc-missing']);
-  });
-
-  it('relates each security group to its own parent VPC by index, independently', () => {
-    const sgs = [
-      { id: 'sg-a', name: 'a', vpc_id: 'vpc-a' },
-      { id: 'sg-b', name: 'b', vpc_id: 'vpc-b' }
-    ];
-    const vpcIndexById = { 'vpc-a': 0, 'vpc-b': 1 };
-    const payload = buildIREPayload(sgs, vpcIndexById);
-    // items: [sg-a(0), sg-b(1)]
-    expect(payload.relations).toEqual([
-      { parent: '0', child: '0', type: CONTAINMENT_RELATION_TYPE },
-      { parent: '1', child: '1', type: CONTAINMENT_RELATION_TYPE }
-    ]);
   });
 
   it('maps every security group in the fixture to an item, in order', () => {
-    const payload = buildIREPayload(securityGroupResponse.security_groups, {});
+    const payload = buildIREPayload(securityGroupResponse.security_groups, 0);
     expect(payload.items).toHaveLength(securityGroupResponse.security_groups.length);
     expect(payload.items[0]).toEqual(mapSecurityGroupToIREItem(securityGroupResponse.security_groups[0]));
   });

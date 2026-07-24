@@ -179,17 +179,41 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        `"bandwidth"` as the empirically-working config, not a confirmed
        explanation of why `"traffic"` failed — re-test `"traffic"` in
        isolation if that billing mode is ever needed.
-     - Security Group: already has real API grounding —
-       `terraform/main.tf` provisions and attaches a real
+     - **Security Group: Terraform grounding AND Discovery both real-PDI
+       verified.** `terraform/main.tf` provisions and attaches a real
        `huaweicloud_networking_secgroup` (+ rules) to the sandbox ECS
-       instance, and it's the same Huawei VPC API family already
-       integrated in Phase 2B (`HuaweiVpcDiscovery.js`), so no new API
-       family to onboard. Identified as a discovery candidate by
-       cross-referencing this project's resource coverage against
-       another Huawei Cloud integration
-       ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server)),
-       which treats Security Group as core VPC-family coverage alongside
-       VPC/Subnet/EIP/route tables/peering.
+       instance, same Huawei VPC API family already integrated in Phase
+       2B. Identified as a discovery candidate by cross-referencing this
+       project's resource coverage against another Huawei Cloud
+       integration
+       ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server))
+       and AWS/Azure's official connectors, which treat Security Group as
+       core network-family coverage. Discovery: `HuaweiVpcDiscovery.js`
+       extended to fetch `GET /v3/{project_id}/vpc/security-groups` and
+       reconcile into `cmdb_ci_compute_security_group` (CI class from
+       AWS's Service Graph Connector docs). Two real corrections made
+       during real-PDI testing:
+       1. The original design related each security group to its parent
+          VPC via `Contains::Contained by` (matching Subnet's relation) -
+          wrong for two reasons found via real testing: Huawei's actual
+          API response has **no `vpc_id` field at all** (contradicts
+          general API-shape assumptions), and
+          `cmdb_ci_compute_security_group`'s real OOTB containment rule
+          wants `Hosted on::Hosts` -> `cmdb_ci_logical_datacenter` instead
+          (the same placeholder `cmdb_ci_network`/VPC itself is hosted
+          under) - confirmed via a real `MISSING_DEPENDENCY` error naming
+          the exact rule. Fixed by relating every security group directly
+          to the shared datacenter placeholder.
+       2. Unlike VPC/Subnet in Phase 2B, `cmdb_ci_compute_security_group`
+          already has a working OOTB Identification Rule ("Compute
+          Security Group Rule", matches on `object_id`) - no manual
+          Identification Rule setup was needed this time.
+       Real-PDI verified end to end: fetch succeeded, both security groups
+       inserted with `hasError:false`, confirmed idempotent on a second
+       run (`insertCount:0, refreshCount:2`). No relation to ECS instances
+       - cross-discovery-run relations aren't a solved pattern in this
+       project yet (documented gap, matches ECS<->VPC/Subnet also not
+       being related).
      - Route Table / NAT Gateway / VPC Peering: `terraform/main.tf`
        provisions `huaweicloud_vpc_route_table` (a real `0.0.0.0/0` route
        with `type = "nat"`, nexthop the NAT gateway), `huaweicloud_nat_gateway`
@@ -216,12 +240,10 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        or could clean up; had to be deleted manually via console before
        `terraform destroy` could complete.
 
-     Remaining before Discovery work can start on any of these six: real
-     field samples (capture actual `describe`/`list` API responses) and
-     the Discovery Script Include(s) themselves. For Security Group,
-     also confirm the candidate CI class and containment relation
-     (likely Security Group → ECS, analogous to the existing Subnet →
-     VPC relation) against a real PDI.
+     Remaining before Discovery work can start on EVS/EIP/Route
+     Table/NAT Gateway/VPC Peering: real field samples (capture actual
+     `describe`/`list` API responses) and the Discovery Script Include(s)
+     themselves. Security Group's Discovery is done (see above).
 3. **Platform services** — ELB, RDS, OBS (buckets only), CCE
    (cluster/node/namespace/workload/service/ingress — no Pods). Terraform
    grounding for all four is now real-PDI verified: `terraform/main.tf`

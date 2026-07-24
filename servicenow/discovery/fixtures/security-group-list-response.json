@@ -1,25 +1,29 @@
 {
+  "request_id": "879a1e7fa41d9a538bc42a4bad663117",
   "security_groups": [
     {
-      "id": "e9776642-9185-4d6e-8840-30adb220a6b0",
       "name": "wsl-manual-smoke-test-1784281457-sg",
+      "id": "3646133c-4547-4edb-a4da-4b8dc084f1ab",
+      "project_id": "00000000000000000000000000000000",
       "description": "",
-      "vpc_id": "e7796c18-ede0-45bc-8f2b-321f813ee4bb",
       "enterprise_project_id": "0",
-      "security_group_rules": [
-        {
-          "id": "ef7bb725-47bb-44db-aed8-d22d8dbd6459",
-          "description": "",
-          "security_group_id": "e9776642-9185-4d6e-8840-30adb220a6b0",
-          "direction": "ingress",
-          "ethertype": "IPv4",
-          "protocol": "tcp",
-          "port_range_min": 22,
-          "port_range_max": 22,
-          "remote_ip_prefix": "0.0.0.0/0",
-          "remote_group_id": null
-        }
-      ]
+      "created_at": "2026-07-24T15:47:34Z",
+      "updated_at": "2026-07-24T15:47:34Z",
+      "tags": []
+    },
+    {
+      "name": "default",
+      "id": "bbc85d65-e97e-456b-b00e-964582117af2",
+      "project_id": "00000000000000000000000000000000",
+      "description": "Default security group",
+      "enterprise_project_id": "0",
+      "created_at": "2026-07-24T15:47:34Z",
+      "updated_at": "2026-07-24T15:47:34Z",
+      "tags": []
     }
-  ]
+  ],
+  "page_info": {
+    "previous_marker": "3646133c-4547-4edb-a4da-4b8dc084f1ab",
+    "current_count": 2
+  }
 }

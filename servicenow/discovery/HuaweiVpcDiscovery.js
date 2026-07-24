@@ -12,10 +12,17 @@
 // separate discovery runs (IRE relations[] entries reference items[] by
 // array index, which only resolves within one createOrUpdateCI() call).
 // Matches the fact that ECS<->VPC/Subnet aren't related to each other
-// either today - a real, documented gap, not a silent omission. See
-// lib/mapSecurityGroupToIRE.js's header comment for the CI class research
-// (AWS's cmdb_ci_compute_security_group) behind CI_CLASS_SECURITY_GROUP
-// below.
+// either today - a real, documented gap, not a silent omission.
+//
+// Security Group -> VPC (Contains::Contained by) was the ORIGINAL design
+// and is WRONG - real-PDI testing found Huawei's actual security-groups
+// API response has no vpc_id field to relate with, and
+// cmdb_ci_compute_security_group's real OOTB containment rule wants
+// Hosted on::Hosts -> cmdb_ci_logical_datacenter instead (the same
+// placeholder cmdb_ci_network/VPC itself is hosted under) - confirmed via
+// a real MISSING_DEPENDENCY error. See lib/mapSecurityGroupToIRE.js's
+// header comment for the full trail behind CI_CLASS_SECURITY_GROUP and
+// HOSTING_RELATION_TYPE below.
 //
 // One file for VPC, Subnet, and Security Group fetch/reconcile, not three, because:
 // ServiceNow scoped scripts cannot require(), so splitting would force a
@@ -42,8 +49,10 @@
 // page_info.next_marker), not ECS's offset-as-page-number. Real-PDI
 // verified for VPC/Subnet (Phase 2B, HC6-HC10) - see lib/vpcPagination.js.
 // Security Group's v3 endpoint reuses the same _fetchPage()/_fetchAllPages()
-// below on the assumption its pagination shape matches; NOT YET verified -
-// confirm on Security Group's first real-PDI run.
+// below - real-PDI confirmed its response shape matches (page_info.
+// previous_marker/current_count), fetch succeeded first try. The response
+// body itself differs from general API-shape assumptions in one way: no
+// vpc_id field - see lib/mapSecurityGroupToIRE.js's header comment.
 //
 // CI classes (CI_CLASS_VPC/CI_CLASS_SUBNET below) confirmed via real-PDI
 // testing (docs/REAL-PDI-REPLAY-CHECKLIST.md's Phase 2B addendum). First
@@ -217,11 +226,14 @@ HuaweiVpcDiscovery.prototype = {
     HOSTING_RELATION_TYPE: 'Hosted on::Hosts',
 
     // Security Group addition (Phase 2C) - mirrors
-    // lib/mapSecurityGroupToIRE.js inline. CI_CLASS_SECURITY_GROUP is a
-    // starting hypothesis from AWS's Service Graph Connector docs, NOT YET
-    // real-PDI confirmed (may need its own Identification Rule, same as
-    // cmdb_ci_network/cmdb_ci_cloud_subnet did in Phase 2B) - see that lib
-    // file's header comment for the full research trail.
+    // lib/mapSecurityGroupToIRE.js inline. CI_CLASS_SECURITY_GROUP
+    // (sourced from AWS's Service Graph Connector docs) is real-PDI
+    // confirmed to exist with real OOTB containment metadata (a genuine
+    // MISSING_DEPENDENCY error referenced it by name - see
+    // HOSTING_RELATION_TYPE usage below). NOT yet confirmed whether it has
+    // a working Identification Rule - the payload was rejected on the
+    // containment check before identification could be fully exercised;
+    // confirm on the next real-PDI run now that the relation is fixed.
     CI_CLASS_SECURITY_GROUP: 'cmdb_ci_compute_security_group',
 
     reconcileCIs: function(vpcs, subnets, securityGroups) {
@@ -323,13 +335,17 @@ HuaweiVpcDiscovery.prototype = {
             gs.warn('[HuaweiVpcDiscovery] ' + unmatchedSubnetIds.length + ' subnet(s) had no matching VPC in this fetch: ' + unmatchedSubnetIds.join(', '));
         }
 
-        // Security Group: one item per group, plus a Contains::Contained by
-        // relation to its parent VPC using the SAME vpcIndexById built above
-        // for subnets - only works because security groups are combined into
-        // this SAME createOrUpdateCI() call, not a separate one (array-index
-        // relations don't resolve across separate calls). No relation to ECS
-        // instances - see this file's header comment for why.
-        var unmatchedSgVpcIds = [];
+        // Security Group: one item per group, plus a Hosted on::Hosts relation
+        // to the SAME shared cmdb_ci_logical_datacenter placeholder VPC itself
+        // is hosted under (datacenterIndex, built above) - real-PDI confirmed
+        // (see lib/mapSecurityGroupToIRE.js's header comment for the full
+        // trail). NOT a Contains::Contained by relation to the VPC - that was
+        // the original design, wrong for two real reasons: Huawei's actual API
+        // response has no vpc_id field to relate with, and
+        // cmdb_ci_compute_security_group's real OOTB containment rule wants a
+        // datacenter parent anyway (confirmed via a real MISSING_DEPENDENCY
+        // error). No relation to ECS instances - see this file's header
+        // comment for why.
         for (var k = 0; k < securityGroups.length; k++) {
             var sg = securityGroups[k];
             items.push({
@@ -343,16 +359,9 @@ HuaweiVpcDiscovery.prototype = {
                 }
             });
             var sgIndex = items.length - 1;
-            var sgVpcIndex = vpcIndexById[sg.vpc_id];
-            if (sgVpcIndex == null) {
-                unmatchedSgVpcIds.push(sg.vpc_id);
-                continue;
+            if (datacenterIndex != null) {
+                relations.push({ parent: String(sgIndex), child: String(datacenterIndex), type: this.HOSTING_RELATION_TYPE });
             }
-            relations.push({ parent: String(sgVpcIndex), child: String(sgIndex), type: this.CONTAINMENT_RELATION_TYPE });
-        }
-
-        if (unmatchedSgVpcIds.length) {
-            gs.warn('[HuaweiVpcDiscovery] ' + unmatchedSgVpcIds.length + ' security group(s) had no matching VPC in this fetch: ' + unmatchedSgVpcIds.join(', '));
         }
 
         // createOrUpdateCI takes TWO arguments: a source-identifier string,

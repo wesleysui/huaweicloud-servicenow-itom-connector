@@ -4,50 +4,59 @@
  * HuaweiVpcDiscovery.js. Designed to be combined with that same module's
  * output in ONE createOrUpdateCI() call (see HuaweiVpcDiscovery.js's
  * reconcileCIs()) - this project's IRE relations[] entries reference
- * items[] by array index, which only works within a single call, so
- * Security Group -> VPC only works when both are discovered together.
- * (Security Group -> ECS instance is NOT attempted here for the same
- * reason: ECS is discovered in a separate Script Include/call, and this
- * project has no established pattern yet for relating CIs across two
- * separate discovery runs - matches the fact that ECS<->VPC/Subnet aren't
- * related to each other either today. Documented as a known gap, not
- * silently skipped.)
+ * items[] by array index, which only works within a single call.
  *
  * CI class chosen by researching how AWS's own official Service Graph
  * Connector models this resource (per this project's standing rule to
- * reference AWS/Azure before designing a new mapping, not guess from the
- * Huawei API shape alone): AWS discovers Security Groups into
- * `cmdb_ci_compute_security_group`, related to Cloud Networks (the same
- * class this project already uses for VPC, `cmdb_ci_network`),
- * Availability Zones, and Cloud Service Accounts. Source: ServiceNow's
- * "Service Graph Connector for AWS - Functional Spec and CI" community
- * article. NOT yet confirmed against this project's own real PDI (the
- * class may not exist, or may need its own Identification Rule
- * configured, exactly like cmdb_ci_network/cmdb_ci_cloud_subnet needed in
- * Phase 2B) - treat CI_CLASS_SECURITY_GROUP as a starting hypothesis to
- * verify, not a settled fact, the same way Phase 2B's VPC class went
- * through 2 rounds of correction before landing on cmdb_ci_network.
- * CONTAINMENT_RELATION_TYPE reuses the "Contains::Contained by" type
- * already proven correct for VPC->Subnet in this project (Security Group
- * belonging to a VPC is a similar "member of" relationship) - a reasonable
- * reuse, not a guess, but still worth re-confirming on real-PDI testing
- * since it's a different class pair than the one it was proven on.
+ * reference AWS/Azure before designing a new mapping): AWS discovers
+ * Security Groups into `cmdb_ci_compute_security_group`. Source:
+ * ServiceNow's "Service Graph Connector for AWS - Functional Spec and CI"
+ * community article. Real-PDI confirmed on this instance (the class
+ * exists and accepted real data once the relation below was fixed).
  *
- * Field names are real, from Huawei's official VPC API v3 documentation
- * (ShowSecurityGroup / ListSecurityGroups) - not fabricated:
- * id, name, description, vpc_id, enterprise_project_id, and a nested
- * security_group_rules[] array (id, description, direction, ethertype,
- * protocol, port_range_min, port_range_max, remote_ip_prefix,
- * remote_group_id). Rules are deliberately NOT mapped into the CI item or
- * decomposed into their own CIs in this first pass - AWS's own connector
- * doesn't appear to model individual SG rules as CMDB items either (its
- * functional spec lists no separate rule-level CI class), so this matches
- * that scope rather than inventing a rule-level CI class unprompted.
+ * HOSTING_RELATION_TYPE ("Hosted on::Hosts" -> cmdb_ci_logical_datacenter)
+ * is real-PDI confirmed, NOT the original design. First attempt related
+ * each security group to its parent VPC via Contains::Contained by
+ * (`vpc_id`), mirroring Subnet's relation to VPC - this failed for TWO
+ * real reasons, both confirmed via real-PDI testing:
+ *   1. Huawei's actual `GET /v3/{project_id}/vpc/security-groups` response
+ *      does NOT include a `vpc_id` field at all (only id, name,
+ *      description, project_id, enterprise_project_id, created_at,
+ *      updated_at, tags) - contradicts what general API-shape assumptions
+ *      would suggest. There is no data to relate a security group to a
+ *      specific VPC with in the first place.
+ *   2. `cmdb_ci_compute_security_group`'s real OOTB containment rule
+ *      doesn't want a VPC parent anyway - the exact real MISSING_DEPENDENCY
+ *      error was: "no relations defined for dependent class
+ *      [cmdb_ci_compute_security_group] that matches any
+ *      containment/hosting rules: [cmdb_ci_compute_security_group >>
+ *      Hosted on >> cmdb_ci_logical_datacenter]" - the SAME placeholder
+ *      cmdb_ci_network (VPC) itself is hosted under, not a child of the
+ *      VPC. Fixed by relating every security group directly to the shared
+ *      per-run cmdb_ci_logical_datacenter placeholder via
+ *      HOSTING_RELATION_TYPE, mirroring how mapVpcSubnetToIRE.js relates
+ *      VPC -> datacenter, not how it relates Subnet -> VPC.
+ *
+ * Field names are real, confirmed against a live Huawei API response
+ * (not just docs): id, name, description, project_id,
+ * enterprise_project_id, created_at, updated_at, tags. No vpc_id.
+ *
+ * Security Group -> ECS instance is NOT related here (no "Secures"
+ * relation) - ECS is discovered in a separate Script Include/call, and
+ * this project has no established pattern yet for relating CIs across two
+ * separate discovery runs. Matches the fact that ECS<->VPC/Subnet aren't
+ * related to each other either today - a real, documented gap, not a
+ * silent omission.
+ *
+ * Rules are deliberately NOT mapped into the CI item or decomposed into
+ * their own CIs - AWS's own connector doesn't appear to model individual
+ * SG rules as CMDB items either (its functional spec lists no separate
+ * rule-level CI class), so this matches that scope.
  */
 
 var CI_CLASS_SECURITY_GROUP = 'cmdb_ci_compute_security_group';
-var CI_CLASS_VPC = 'cmdb_ci_network';
-var CONTAINMENT_RELATION_TYPE = 'Contains::Contained by';
+var CI_CLASS_LOGICAL_DATACENTER = 'cmdb_ci_logical_datacenter';
+var HOSTING_RELATION_TYPE = 'Hosted on::Hosts';
 
 /**
  * Map one Huawei Security Group object (from
@@ -70,51 +79,43 @@ function mapSecurityGroupToIREItem(sg) {
 
 /**
  * Builds the Security Group portion of a combined IRE payload: one item per
- * security group, plus a Contains::Contained by relation to its parent VPC
- * item index (vpcIndexById - supplied by the caller, built from the SAME
- * run's VPC items so the array-index-based relations[] entries resolve
- * correctly; see HuaweiVpcDiscovery.js's reconcileCIs()).
+ * security group, plus a Hosted on::Hosts relation to the shared
+ * cmdb_ci_logical_datacenter placeholder item index (datacenterIndex -
+ * supplied by the caller, built from the SAME run's VPC/datacenter setup so
+ * the array-index-based relations[] entries resolve correctly; see
+ * HuaweiVpcDiscovery.js's reconcileCIs()).
  *
  * items/relations are APPENDED TO the arrays passed in (mutated in place)
  * so the caller can combine this with VPC/Subnet items in one
  * createOrUpdateCI() call and keep index bookkeeping in one place, the same
  * shape mapVpcSubnetToIRE.js's buildIREPayload() already returns.
  *
- * A security group whose vpc_id doesn't match any VPC in vpcIndexById is
- * reported in unmatchedVpcIds instead of silently dropped - same
- * convention as mapVpcSubnetToIRE.js's unmatchedSubnetIds.
- *
  * @param {Object[]} securityGroups
- * @param {Object.<string, number>} vpcIndexById - security group vpc_id -> items[] index
- * @returns {{items: Object[], relations: Object[], unmatchedVpcIds: string[]}}
+ * @param {number|null} datacenterIndex - items[] index of the shared cmdb_ci_logical_datacenter placeholder, or null if none was created this run (no VPCs discovered)
+ * @returns {{items: Object[], relations: Object[]}}
  */
-function buildIREPayload(securityGroups, vpcIndexById) {
+function buildIREPayload(securityGroups, datacenterIndex) {
   securityGroups = securityGroups || [];
-  vpcIndexById = vpcIndexById || {};
 
   var items = [];
   var relations = [];
-  var unmatchedVpcIds = [];
 
   securityGroups.forEach(function (sg) {
     items.push(mapSecurityGroupToIREItem(sg));
     var sgItemIndex = items.length - 1;
 
-    var vpcIndex = vpcIndexById[sg.vpc_id];
-    if (vpcIndex == null) {
-      unmatchedVpcIds.push(sg.vpc_id);
-      return;
+    if (datacenterIndex != null) {
+      relations.push({ parent: String(sgItemIndex), child: String(datacenterIndex), type: HOSTING_RELATION_TYPE });
     }
-    relations.push({ parent: String(vpcIndex), child: String(sgItemIndex), type: CONTAINMENT_RELATION_TYPE });
   });
 
-  return { items: items, relations: relations, unmatchedVpcIds: unmatchedVpcIds };
+  return { items: items, relations: relations };
 }
 
 module.exports = {
   mapSecurityGroupToIREItem: mapSecurityGroupToIREItem,
   buildIREPayload: buildIREPayload,
   CI_CLASS_SECURITY_GROUP: CI_CLASS_SECURITY_GROUP,
-  CI_CLASS_VPC: CI_CLASS_VPC,
-  CONTAINMENT_RELATION_TYPE: CONTAINMENT_RELATION_TYPE
+  CI_CLASS_LOGICAL_DATACENTER: CI_CLASS_LOGICAL_DATACENTER,
+  HOSTING_RELATION_TYPE: HOSTING_RELATION_TYPE
 };

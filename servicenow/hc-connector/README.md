@@ -10,10 +10,11 @@
 > phases (`createOrUpdateCI`'s return value being an unparsed JSON
 > string). Scope narrowed from the original "VPC/Subnet/EVS/EIP" wording —
 > EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
-> Phase 2C — Terraform grounding for all six is now real-PDI verified;
-> Security Group Discovery is source-complete, not yet real-PDI verified.
-> Phase 1 (productization scaffold: tables, pure lib modules) is folded in
-> below.
+> Phase 2C — Terraform grounding for all six is real-PDI verified;
+> **Security Group Discovery is also real-PDI verified** (fetch, real CI
+> class with a working OOTB Identification Rule, containment relation
+> corrected after real testing, idempotent on a second run). Phase 1
+> (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
 > parameter in Phase 2A (falls back to its original System-Property
 > behavior when omitted — single-account usage is unaffected) and is
@@ -83,9 +84,10 @@ Source-complete and unit-tested, **not yet real-PDI verified**. Scope
 narrowed from the roadmap's original "VPC/Subnet/EVS/EIP" wording —
 EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
 Phase 2C. All six now have real-PDI-verified Terraform grounding
-(`terraform/main.tf`); Security Group Discovery itself is also
-source-complete (folded into `HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`
-alongside VPC/Subnet), not yet real-PDI verified.
+(`terraform/main.tf`); **Security Group Discovery is also real-PDI
+verified** (folded into `HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`
+alongside VPC/Subnet) - see the Phase 2C section below for the real
+gotchas found and fixed.
 
 - **`servicenow/discovery/HuaweiVpcDiscovery.js`** — a new sibling to
   `HuaweiECSDiscovery.js`, not a modification of it. Fetches both VPCs and
@@ -261,8 +263,8 @@ node servicenow/hc-connector/scripts/check-mirror-drift.js          # 3 mirrored
 - **EVS/EIP/Route Table/NAT Gateway/VPC Peering Discovery are Phase 2C, not
   this phase** — deliberately deferred, not silently dropped. Their
   Terraform grounding is real-PDI verified; Discovery scripts for them
-  haven't been written yet. Security Group Discovery, also Phase 2C, IS
-  source-complete (see above) — just not yet real-PDI verified.
+  haven't been written yet. **Security Group Discovery, also Phase 2C, IS
+  done and real-PDI verified** (see above).
 - No working IAM Agency authentication (interface stub only — needs a real
   Huawei Organizations account).
 - No deployed event gateway (FunctionGraph/API Gateway) — architecture doc
