@@ -86,3 +86,15 @@ variable "rds_volume_size" {
   default     = 40
   description = "RDS data volume size in GB (40 is Huawei's minimum for CLOUDSSD)"
 }
+
+variable "nat_gateway_spec" {
+  type        = string
+  default     = "1"
+  description = "NAT gateway size tier (1=small/2=medium/3=large/4=extra-large)"
+}
+
+variable "peer_vpc_cidr" {
+  type        = string
+  default     = "172.16.0.0/16"
+  description = "CIDR for the second VPC created to demonstrate VPC peering - must not overlap with var.vpc_cidr"
+}

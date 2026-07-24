@@ -182,3 +182,63 @@ resource "huaweicloud_elb_member" "catalog_elb_member" {
   address       = huaweicloud_compute_instance.catalog_ecs.access_ip_v4
   protocol_port = 80
 }
+
+# --------------------------- Networking (NAT Gateway) ---------------------------
+resource "huaweicloud_nat_gateway" "catalog_nat" {
+  name      = "${var.instance_name}-nat"
+  spec      = var.nat_gateway_spec
+  vpc_id    = huaweicloud_vpc.catalog_vpc.id
+  subnet_id = huaweicloud_vpc_subnet.catalog_subnet.id
+}
+
+# Dedicated EIP for the NAT gateway's SNAT rule - separate from
+# huaweicloud_vpc_eip.catalog_eip above, which is already bound directly to
+# the ECS instance (an EIP can only be associated with one thing at a time).
+resource "huaweicloud_vpc_eip" "nat_eip" {
+  publicip {
+    type = "5_bgp"
+  }
+
+  bandwidth {
+    name        = "${var.instance_name}-nat-eip-bw"
+    size        = var.eip_bandwidth_size
+    share_type  = "PER"
+    charge_mode = "bandwidth"
+  }
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+resource "huaweicloud_nat_snat_rule" "catalog_snat" {
+  nat_gateway_id = huaweicloud_nat_gateway.catalog_nat.id
+  subnet_id      = huaweicloud_vpc_subnet.catalog_subnet.id
+  floating_ip_id = huaweicloud_vpc_eip.nat_eip.id
+}
+
+# ---------------------------- Networking (Route Table) --------------------------
+resource "huaweicloud_vpc_route_table" "catalog_route_table" {
+  vpc_id = huaweicloud_vpc.catalog_vpc.id
+  name   = "${var.instance_name}-rt"
+
+  route {
+    destination = "0.0.0.0/0"
+    type        = "nat"
+    nexthop     = huaweicloud_nat_gateway.catalog_nat.id
+  }
+}
+
+# ----------------------------- Networking (VPC Peering) -------------------------
+# Peering needs a second VPC - CIDR must not overlap with var.vpc_cidr.
+resource "huaweicloud_vpc" "peer_vpc" {
+  name = "${var.instance_name}-peer-vpc"
+  cidr = var.peer_vpc_cidr
+}
+
+resource "huaweicloud_vpc_peering_connection" "catalog_peering" {
+  name        = "${var.instance_name}-peering"
+  vpc_id      = huaweicloud_vpc.catalog_vpc.id
+  peer_vpc_id = huaweicloud_vpc.peer_vpc.id
+}

@@ -30,3 +30,15 @@ output "rds_instance_id" {
 output "elb_id" {
   value = huaweicloud_elb_loadbalancer.catalog_elb.id
 }
+
+output "nat_gateway_id" {
+  value = huaweicloud_nat_gateway.catalog_nat.id
+}
+
+output "route_table_id" {
+  value = huaweicloud_vpc_route_table.catalog_route_table.id
+}
+
+output "peering_connection_id" {
+  value = huaweicloud_vpc_peering_connection.catalog_peering.id
+}

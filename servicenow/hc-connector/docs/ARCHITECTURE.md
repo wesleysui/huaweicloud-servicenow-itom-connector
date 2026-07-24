@@ -152,12 +152,18 @@ FunctionGraph/API Gateway account, see Phase 5 below).
      used. HC6–HC10 all confirmed against a real PDI + real Huawei Cloud
      sandbox account. EVS/EIP deliberately excluded from this phase - see
      2C.
-   - **2C (EVS + EIP + Security Group, Discovery not started; Terraform
-     grounding real-verified for all three)** — originally split out of
-     the original 2B scope for having zero real-API grounding on
-     EVS/EIP; Security Group folded in here too since it's the same kind
-     of "network/storage resource attached to the sandbox ECS instance"
-     work, not a separate track. Terraform side:
+   - **2C (EVS + EIP + Security Group + Route Table + NAT Gateway + VPC
+     Peering, Discovery not started; Terraform grounding real-verified
+     for all six)** — originally split out of the original 2B scope for
+     having zero real-API grounding on EVS/EIP; the other four folded in
+     here too since it's the same kind of "network/storage resource
+     attached to the sandbox VPC/ECS" work, not a separate track. Route
+     Table, NAT Gateway, and VPC Peering were identified the same way as
+     Security Group — cross-referencing this project's resource coverage
+     against AWS's Service Management Connector and Azure's Service
+     Graph Connector, both of which treat these as core network-family
+     discovery targets alongside VPC/Subnet/Security Group. Terraform
+     side:
      - EVS/EIP: `terraform/main.tf` provisions `huaweicloud_evs_volume`
        (+ `huaweicloud_compute_volume_attach`) and `huaweicloud_vpc_eip`
        (+ `huaweicloud_vpc_eip_associate`), **real-PDI verified via a
@@ -184,8 +190,33 @@ FunctionGraph/API Gateway account, see Phase 5 below).
        ([huaweicloud-mcp-server](https://github.com/lexcodee/huaweicloud-mcp-server)),
        which treats Security Group as core VPC-family coverage alongside
        VPC/Subnet/EIP/route tables/peering.
+     - Route Table / NAT Gateway / VPC Peering: `terraform/main.tf`
+       provisions `huaweicloud_vpc_route_table` (a real `0.0.0.0/0` route
+       with `type = "nat"`, nexthop the NAT gateway), `huaweicloud_nat_gateway`
+       + `huaweicloud_nat_snat_rule` (a second, dedicated EIP — an EIP can
+       only be bound to one thing at a time, so this can't reuse the
+       ECS-bound one above), and `huaweicloud_vpc_peering_connection`
+       between the sandbox VPC and a second VPC created just for this
+       (`var.peer_vpc_cidr`, default `172.16.0.0/16`, must not overlap
+       `var.vpc_cidr`). **Real-PDI verified via a full apply + destroy**
+       — all three resource types created successfully alongside the
+       EVS/EIP/ELB/RDS/OBS batch (16 resources total in one apply). One
+       real gotcha hit and fixed: `huaweicloud_nat_gateway`'s `subnet_id`
+       needs the `huaweicloud_vpc_subnet` resource's own `.id`, not its
+       `.ipv4_subnet_id` (the underlying network ID that ELB's
+       `ipv4_subnet_id`/`subnet_id` fields expect) — using the wrong one
+       failed with `NAT.0005` ("Network ... does not exist"). Also
+       surfaced an unrelated pre-existing issue: VPC deletion timed out
+       twice via `terraform destroy` (`timeout while waiting for state to
+       become 'DELETED'`) because of a **VPC Endpoint Service left over
+       from 2026-07-20** (confirmed via the console's own delete-blocker
+       list, cross-checked against `terraform state list` showing nothing
+       endpoint-related and the resource's real creation timestamp
+       predating this session by days) — not something Terraform created
+       or could clean up; had to be deleted manually via console before
+       `terraform destroy` could complete.
 
-     Remaining before Discovery work can start on any of the three: real
+     Remaining before Discovery work can start on any of these six: real
      field samples (capture actual `describe`/`list` API responses) and
      the Discovery Script Include(s) themselves. For Security Group,
      also confirm the candidate CI class and containment relation
