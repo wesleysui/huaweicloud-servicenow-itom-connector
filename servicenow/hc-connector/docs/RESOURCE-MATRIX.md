@@ -11,9 +11,9 @@ built or verified · ❌ not started · — not applicable.
 | EVS (disk) | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_evs_volume` + `huaweicloud_compute_volume_attach`, apply+destroy against real sandbox) | ❌ Discovery not started | 🚧 Cloud Eye emits EVS alarms; no ingestion mapping yet | ❌ | Phase 2C — Terraform grounding done, Discovery pending |
 | EIP | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_vpc_eip` + `huaweicloud_vpc_eip_associate`, apply+destroy against real sandbox) | ❌ Discovery not started | ❌ | ❌ | Phase 2C — Terraform grounding done, Discovery pending |
 | Security Group | ✅ verified (part of `terraform/main.tf`, `huaweicloud_networking_secgroup` + rule, already used since Phase 1) | ❌ Discovery not started — same Huawei VPC API family as `HuaweiVpcDiscovery.js` | — | ❌ | Phase 2C — Terraform grounding done, Discovery pending |
-| ELB | ❌ | ❌ | ❌ | ❌ | Phase 3 |
-| RDS | ❌ | ❌ | ❌ | ❌ | Phase 3 |
-| OBS (bucket) | ❌ | ❌ (buckets only when built — no per-Object discovery, ever) | ❌ | ❌ | Phase 3 |
+| ELB | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_elb_loadbalancer` + listener + pool + member, apply+destroy against real sandbox, ECS instance registered as backend) | ❌ Discovery not started | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
+| RDS | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_rds_instance`, single-node MySQL 8.0, apply+destroy against real sandbox) | ❌ Discovery not started | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
+| OBS (bucket) | ✅ real-PDI verified (`terraform/main.tf`, `huaweicloud_obs_bucket`, apply+destroy against real sandbox) | ❌ (buckets only when built — no per-Object discovery, ever) | ❌ | ❌ | Phase 3 — Terraform grounding done, Discovery pending |
 | CCE (cluster/node/namespace/workload/service/ingress) | ❌ | ❌ | ❌ | ❌ | Phase 3 |
 | CCE Pod | ❌ | ❌ (opt-in only, off by default, namespace/label-filtered, excludes kube-system/Jobs/completed Pods, 24h post-termination retirement) | ❌ | ❌ | Phase 4, gated on Phase 3 stability |
 | CTS (audit events) | — | — | ❌ | — | Phase 5 |

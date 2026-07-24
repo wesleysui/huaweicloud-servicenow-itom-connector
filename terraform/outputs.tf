@@ -18,3 +18,15 @@ output "evs_volume_id" {
 output "eip_address" {
   value = huaweicloud_vpc_eip.catalog_eip.address
 }
+
+output "obs_bucket_id" {
+  value = huaweicloud_obs_bucket.catalog_obs.id
+}
+
+output "rds_instance_id" {
+  value = huaweicloud_rds_instance.catalog_rds.id
+}
+
+output "elb_id" {
+  value = huaweicloud_elb_loadbalancer.catalog_elb.id
+}

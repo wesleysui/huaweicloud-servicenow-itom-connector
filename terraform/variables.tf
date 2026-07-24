@@ -63,3 +63,26 @@ variable "eip_bandwidth_size" {
   default     = 5
   description = "EIP bandwidth in Mbit/s (pay-per-traffic, keep small for sandbox cost control)"
 }
+
+variable "obs_bucket_name" {
+  type        = string
+  default     = ""
+  description = "OBS bucket name override (bucket names are globally unique across all Huawei Cloud accounts - set this if the default '<instance_name>-obs' collides)"
+}
+
+variable "rds_flavor" {
+  type        = string
+  description = "RDS instance flavor id (e.g. rds.mysql.x1.large.2) - valid values are account/region-specific, look up via `huaweicloud_rds_flavors` or the console before applying"
+}
+
+variable "rds_admin_pass" {
+  type        = string
+  sensitive   = true
+  description = "RDS instance admin password"
+}
+
+variable "rds_volume_size" {
+  type        = number
+  default     = 40
+  description = "RDS data volume size in GB (40 is Huawei's minimum for CLOUDSSD)"
+}

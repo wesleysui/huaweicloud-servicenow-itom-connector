@@ -108,3 +108,77 @@ resource "huaweicloud_vpc_eip_associate" "catalog_eip_associate" {
   public_ip = huaweicloud_vpc_eip.catalog_eip.address
   port_id   = huaweicloud_compute_instance.catalog_ecs.network[0].port
 }
+
+# -------------------------------- Storage (OBS) --------------------------------
+# Bucket names are globally unique across all Huawei Cloud accounts (S3-style) -
+# lowercase alphanumeric + hyphens only. If this collides, override via
+# -var="obs_bucket_name=...".
+resource "huaweicloud_obs_bucket" "catalog_obs" {
+  bucket = var.obs_bucket_name != "" ? var.obs_bucket_name : "${var.instance_name}-obs"
+  acl    = "private"
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+# ------------------------------- Database (RDS) --------------------------------
+resource "huaweicloud_rds_instance" "catalog_rds" {
+  name              = "${var.instance_name}-rds"
+  flavor            = var.rds_flavor
+  vpc_id            = huaweicloud_vpc.catalog_vpc.id
+  subnet_id         = huaweicloud_vpc_subnet.catalog_subnet.id
+  security_group_id = huaweicloud_networking_secgroup.catalog_sg.id
+  availability_zone = [var.az]
+
+  db {
+    type     = "MySQL"
+    version  = "8.0"
+    password = var.rds_admin_pass
+  }
+
+  volume {
+    type = "CLOUDSSD"
+    size = var.rds_volume_size
+  }
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+# ------------------------------- Load Balancer (ELB) ----------------------------
+resource "huaweicloud_elb_loadbalancer" "catalog_elb" {
+  name              = "${var.instance_name}-elb"
+  vpc_id            = huaweicloud_vpc.catalog_vpc.id
+  ipv4_subnet_id    = huaweicloud_vpc_subnet.catalog_subnet.ipv4_subnet_id
+  availability_zone = [var.az]
+
+  tags = merge(
+    { provisioned_by = "servicenow-cpg" },
+    var.sn_request_number != "" ? { sn_request = var.sn_request_number } : {}
+  )
+}
+
+resource "huaweicloud_elb_listener" "catalog_elb_listener" {
+  name            = "${var.instance_name}-elb-listener"
+  loadbalancer_id = huaweicloud_elb_loadbalancer.catalog_elb.id
+  protocol        = "HTTP"
+  protocol_port   = 80
+}
+
+resource "huaweicloud_elb_pool" "catalog_elb_pool" {
+  name        = "${var.instance_name}-elb-pool"
+  protocol    = "HTTP"
+  lb_method   = "ROUND_ROBIN"
+  listener_id = huaweicloud_elb_listener.catalog_elb_listener.id
+}
+
+resource "huaweicloud_elb_member" "catalog_elb_member" {
+  pool_id       = huaweicloud_elb_pool.catalog_elb_pool.id
+  subnet_id     = huaweicloud_vpc_subnet.catalog_subnet.ipv4_subnet_id
+  address       = huaweicloud_compute_instance.catalog_ecs.access_ip_v4
+  protocol_port = 80
+}
