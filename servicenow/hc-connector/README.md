@@ -9,9 +9,11 @@
 > `cmdb_ci_network` → `cmdb_ci_cloud_subnet`) and a real bug affecting both
 > phases (`createOrUpdateCI`'s return value being an unparsed JSON
 > string). Scope narrowed from the original "VPC/Subnet/EVS/EIP" wording —
-> EVS/EIP deferred to Phase 2C, which has no real API grounding in this
-> repo yet. Phase 1 (productization scaffold: tables, pure lib
-> modules) is folded in below.
+> EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
+> Phase 2C — Terraform grounding for all six is now real-PDI verified;
+> Security Group Discovery is source-complete, not yet real-PDI verified.
+> Phase 1 (productization scaffold: tables, pure lib modules) is folded in
+> below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
 > parameter in Phase 2A (falls back to its original System-Property
 > behavior when omitted — single-account usage is unaffected) and is
@@ -78,10 +80,12 @@ restrictions already solved this session for Discovery/Event Management.
 ## What Phase 2B adds on top of Phase 2A
 
 Source-complete and unit-tested, **not yet real-PDI verified**. Scope
-narrowed from the roadmap's original "VPC/Subnet/EVS/EIP" wording — EVS/EIP
-deferred to Phase 2C, which has no real API grounding (no Terraform
-resources, no field samples, no sandbox test path) in this repo yet;
-VPC/Subnet do, via `terraform/main.tf`.
+narrowed from the roadmap's original "VPC/Subnet/EVS/EIP" wording —
+EVS/EIP/Security Group/Route Table/NAT Gateway/VPC Peering deferred to
+Phase 2C. All six now have real-PDI-verified Terraform grounding
+(`terraform/main.tf`); Security Group Discovery itself is also
+source-complete (folded into `HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`
+alongside VPC/Subnet), not yet real-PDI verified.
 
 - **`servicenow/discovery/HuaweiVpcDiscovery.js`** — a new sibling to
   `HuaweiECSDiscovery.js`, not a modification of it. Fetches both VPCs and
@@ -254,9 +258,11 @@ node servicenow/hc-connector/scripts/check-mirror-drift.js          # 3 mirrored
   exercised against a real ServiceNow PDI + real Huawei Cloud sandbox
   account (Phase 2A: HC2/HC3/HC4 directly, HC1/HC5 on lighter evidence;
   Phase 2B: HC6–HC10 all directly).
-- **EVS and EIP are Phase 2C, not this phase** — deliberately deferred,
-  not silently dropped: this repo has zero real-API grounding for either
-  (no Terraform resources, no field samples, no sandbox test path).
+- **EVS/EIP/Route Table/NAT Gateway/VPC Peering Discovery are Phase 2C, not
+  this phase** — deliberately deferred, not silently dropped. Their
+  Terraform grounding is real-PDI verified; Discovery scripts for them
+  haven't been written yet. Security Group Discovery, also Phase 2C, IS
+  source-complete (see above) — just not yet real-PDI verified.
 - No working IAM Agency authentication (interface stub only — needs a real
   Huawei Organizations account).
 - No deployed event gateway (FunctionGraph/API Gateway) — architecture doc

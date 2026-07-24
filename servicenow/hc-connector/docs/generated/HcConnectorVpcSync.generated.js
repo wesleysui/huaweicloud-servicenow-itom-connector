@@ -10,13 +10,13 @@
 // and lib/syncStatePlanner.js (module.exports stripped) at the marker below,
 // producing docs/generated/HcConnectorVpcSync.generated.js - paste THAT.
 //
-// Multi-account/region VPC + Subnet sync orchestrator (HC ITOM Connector
-// Phase 2B). Sibling to service-graph/HcConnectorEcsSync.js, not a
-// refactor of it - that file is real-PDI verified and intentionally left
-// untouched (see docs/ROADMAP.md's Phase 2B plan, "non-negotiable
-// constraint"). No shared base class between the two on purpose, to keep
-// the diff against Phase 2A's proven code at exactly zero; reuse happens
-// at the pure lib/ layer below, which is already resource-type-agnostic.
+// Multi-account/region VPC + Subnet + Security Group sync orchestrator (HC
+// ITOM Connector Phase 2B, Security Group added in Phase 2C). Sibling to
+// service-graph/HcConnectorEcsSync.js, not a refactor of it - that file is
+// real-PDI verified and intentionally left untouched. No shared base class
+// between the two on purpose, to keep the diff against Phase 2A's proven
+// code at exactly zero; reuse happens at the pure lib/ layer below, which
+// is already resource-type-agnostic.
 //
 // For every active HC Cloud Region under every active HC Cloud Account:
 //   1. resolve credentials (createCredentialProvider, from HC Cloud
@@ -24,26 +24,30 @@
 //   2. construct a HuaweiVpcDiscovery with explicit config (its
 //      fetch/sign/reconcile logic - see
 //      servicenow/discovery/HuaweiVpcDiscovery.js)
-//   3. fetch BOTH vpcs and subnets, then reconcile via ONE IRE call
-//      (relations[] needs both sides' array indices in the same payload -
-//      can't be two separate createOrUpdateCI calls)
+//   3. fetch vpcs, subnets, AND security groups, then reconcile via ONE
+//      IRE call (relations[] needs every side's array indices in the same
+//      payload - can't be split across separate createOrUpdateCI calls;
+//      this is also why Security Group -> ECS instance relations aren't
+//      attempted here, since ECS is a wholly separate discovery run - see
+//      HuaweiVpcDiscovery.js's header comment)
 //   4. upsert HC Resource Sync State for EACH resource type separately -
 //      planSyncStateUpdates (lib/syncStatePlanner.js, unchanged) is called
-//      TWICE, once per resource type, since it's already scoped by
+//      THREE times, once per resource type, since it's already scoped by
 //      resource_type via its caller
 //   5. run the retirement pass for each resource type - but ONLY if the
 //      shared fetch/reconcile phase succeeded; a failure skips straight to
-//      recording the error (for BOTH resource types' run rows together)
-//      and moving to the next region. Same structural guarantee as ECS:
-//      "an incomplete sync can never retire a resource."
+//      recording the error (for ALL THREE resource types' run rows
+//      together) and moving to the next region. Same structural guarantee
+//      as ECS: "an incomplete sync can never retire a resource."
 // One account/region's failure is caught and logged without stopping the
 // loop for the others.
 //
-// Two HC Discovery Run rows per account/region iteration (one per
-// resource_type='vpc'/'subnet'), sharing one trace_id to link them as "the
-// same underlying fetch" - not a combined 'vpc_subnet' resource_type
+// Three HC Discovery Run rows per account/region iteration (one per
+// resource_type='vpc'/'subnet'/'security_group'), sharing one trace_id to
+// link them as "the same underlying fetch" - not a combined resource_type
 // string, since hc_discovery_run/RESOURCE-MATRIX.md are both designed
-// around one row = one resource type.
+// around one row = one resource type. Adding 'security_group' needed no
+// schema change - resource_type is a plain string field, not a choice list.
 
 // ---- inlined from lib/credentialProvider.js (do not hand-edit here - edit the source and regenerate) ----
 /**
@@ -484,6 +488,10 @@ HcConnectorVpcSync.prototype = {
         this.CONFIG_TABLE = this.SCOPE + '_hc_connector_config';
         this.RESOURCE_TYPE_VPC = 'vpc';
         this.RESOURCE_TYPE_SUBNET = 'subnet';
+        // Phase 2C addition - 'security_group' needed no schema change:
+        // hc_discovery_run.resource_type is a plain string field (not a
+        // choice list), so a new value here just works.
+        this.RESOURCE_TYPE_SECURITY_GROUP = 'security_group';
     },
 
     // ------------------------------------------------------------------
@@ -514,7 +522,7 @@ HcConnectorVpcSync.prototype = {
 
     _runForAccountRegion: function(account, region) {
         var startedAtMs = new Date().getTime();
-        var traceId = gs.generateGUID(); // one trace id links the vpc+subnet run pair
+        var traceId = gs.generateGUID(); // one trace id links the vpc+subnet+security_group run triple
         var vpcRunFields = startRun({
             accountSysId: account.sys_id,
             regionSysId: region.sys_id,
@@ -531,31 +539,42 @@ HcConnectorVpcSync.prototype = {
             traceId: traceId,
             startedAtMs: startedAtMs
         });
+        var sgRunFields = startRun({
+            accountSysId: account.sys_id,
+            regionSysId: region.sys_id,
+            resourceType: this.RESOURCE_TYPE_SECURITY_GROUP,
+            correlationId: account.account_id + ':' + region.region + ':security_group',
+            traceId: traceId,
+            startedAtMs: startedAtMs
+        });
         var vpcRunSysId = this._insertDiscoveryRun(vpcRunFields);
         var subnetRunSysId = this._insertDiscoveryRun(subnetRunFields);
+        var sgRunSysId = this._insertDiscoveryRun(sgRunFields);
 
         var fetchResult;
         try {
-            fetchResult = this._fetchVpcsAndSubnets(account, region);
+            fetchResult = this._fetchVpcsSubnetsAndSecurityGroups(account, region);
         } catch (fetchEx) {
             gs.error('[HcConnectorVpcSync] fetch failed for account=' + account.account_id +
                 ' region=' + region.region + ': ' + fetchEx.message);
             this._recordRegionError(region.sys_id, fetchEx.message);
             this._finishRun(vpcRunSysId, vpcRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(subnetRunSysId, subnetRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
-            return; // structural guarantee: retirement below is unreachable on fetch failure, for BOTH resource types
+            this._finishRun(sgRunSysId, sgRunFields, { successCount: 0, failCount: 0, errorSummary: fetchEx.message, endedAtMs: new Date().getTime() });
+            return; // structural guarantee: retirement below is unreachable on fetch failure, for ALL THREE resource types
         }
 
         var reconcileResult;
         try {
-            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.vpcs, fetchResult.subnets);
+            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.vpcs, fetchResult.subnets, fetchResult.securityGroups);
         } catch (reconcileEx) {
             gs.error('[HcConnectorVpcSync] reconcile failed for account=' + account.account_id +
                 ' region=' + region.region + ': ' + reconcileEx.message);
             this._recordRegionError(region.sys_id, reconcileEx.message);
             this._finishRun(vpcRunSysId, vpcRunFields, { successCount: 0, failCount: fetchResult.vpcs.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
             this._finishRun(subnetRunSysId, subnetRunFields, { successCount: 0, failCount: fetchResult.subnets.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
-            return; // also skip retirement for both - we don't know which CIs actually got created
+            this._finishRun(sgRunSysId, sgRunFields, { successCount: 0, failCount: fetchResult.securityGroups.length, errorSummary: reconcileEx.message, endedAtMs: new Date().getTime() });
+            return; // also skip retirement for all three - we don't know which CIs actually got created
         }
 
         this._finishRun(vpcRunSysId, vpcRunFields, {
@@ -568,9 +587,15 @@ HcConnectorVpcSync.prototype = {
             failCount: 0,
             endedAtMs: new Date().getTime()
         });
+        this._finishRun(sgRunSysId, sgRunFields, {
+            successCount: reconcileResult.sgSummary.insertCount + reconcileResult.sgSummary.refreshCount,
+            failCount: 0,
+            endedAtMs: new Date().getTime()
+        });
         this._recordRegionSuccess(region.sys_id);
         gs.info('[HcConnectorVpcSync] account=' + account.account_id + ' region=' + region.region +
-            ' done: vpc=' + JSON.stringify(reconcileResult.vpcSummary) + ' subnet=' + JSON.stringify(reconcileResult.subnetSummary));
+            ' done: vpc=' + JSON.stringify(reconcileResult.vpcSummary) + ' subnet=' + JSON.stringify(reconcileResult.subnetSummary) +
+            ' security_group=' + JSON.stringify(reconcileResult.sgSummary));
     },
 
     _finishRun: function(runSysId, runFields, outcome) {
@@ -580,7 +605,7 @@ HcConnectorVpcSync.prototype = {
     // ------------------------------------------------------------------
     // Fetch (delegates to HuaweiVpcDiscovery)
     // ------------------------------------------------------------------
-    _fetchVpcsAndSubnets: function(account, region) {
+    _fetchVpcsSubnetsAndSecurityGroups: function(account, region) {
         var provider = createCredentialProvider(account.auth_mode, {
             propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
             accountId: account.account_id
@@ -598,22 +623,24 @@ HcConnectorVpcSync.prototype = {
 
         var vpcs = disco.fetchVPCs(); // throws on a page failure - see HuaweiVpcDiscovery.js
         var subnets = disco.fetchSubnets();
-        return { disco: disco, vpcs: vpcs, subnets: subnets };
+        var securityGroups = disco.fetchSecurityGroups();
+        return { disco: disco, vpcs: vpcs, subnets: subnets, securityGroups: securityGroups };
     },
 
     // ------------------------------------------------------------------
     // Reconcile (delegates to HuaweiVpcDiscovery.reconcileCIs)
     // + upsert HC Resource Sync State (per resource type) + retirement
     // ------------------------------------------------------------------
-    _reconcileAndUpsert: function(account, region, vpcs, subnets) {
+    _reconcileAndUpsert: function(account, region, vpcs, subnets, securityGroups) {
         var self = this;
+        securityGroups = securityGroups || [];
 
         // Same throwaway-instance reasoning as HcConnectorEcsSync: reconcileCIs
         // doesn't need credentials, only region/accountId (used to identify the
         // shared logical-datacenter/cloud-service-account placeholders), so a
         // fresh instance configured the same way is fine here.
         var disco = new HuaweiVpcDiscovery({ region: region.region, accountId: account.account_id });
-        var result = disco.reconcileCIs(vpcs, subnets);
+        var result = disco.reconcileCIs(vpcs, subnets, securityGroups);
 
         // reconcileCIs catches its own exceptions internally and returns undefined on
         // failure rather than rethrowing (see HuaweiVpcDiscovery.js) - this is where that
@@ -637,22 +664,33 @@ HcConnectorVpcSync.prototype = {
         var subnetSeen = subnets.map(function(s) {
             return { native_key: s.id, ci: self._lookupCiByCorrelationId(s.id, disco.CI_CLASS_SUBNET) };
         });
+        var sgSeen = securityGroups.map(function(sg) {
+            return { native_key: sg.id, ci: self._lookupCiByCorrelationId(sg.id, disco.CI_CLASS_SECURITY_GROUP) };
+        });
 
         var vpcExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_VPC);
         var subnetExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_SUBNET);
+        var sgExisting = this._getExistingSyncStateRows(account.sys_id, region.sys_id, this.RESOURCE_TYPE_SECURITY_GROUP);
 
         var missThreshold = this._getConsecutiveMissThreshold();
         var vpcPlan = planSyncStateUpdates(vpcSeen, vpcExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
         var subnetPlan = planSyncStateUpdates(subnetSeen, subnetExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
+        var sgPlan = planSyncStateUpdates(sgSeen, sgExisting, { computeNextState: computeNextState, consecutiveMissThreshold: missThreshold });
 
         this._applyInserts(account, region, this.RESOURCE_TYPE_VPC, vpcPlan.toInsert);
         this._applyInserts(account, region, this.RESOURCE_TYPE_SUBNET, subnetPlan.toInsert);
+        this._applyInserts(account, region, this.RESOURCE_TYPE_SECURITY_GROUP, sgPlan.toInsert);
         this._applyRefreshes(vpcPlan.toRefresh);
         this._applyRefreshes(subnetPlan.toRefresh);
+        this._applyRefreshes(sgPlan.toRefresh);
         this._applyTransitions(vpcPlan.toTransition);
         this._applyTransitions(subnetPlan.toTransition);
+        this._applyTransitions(sgPlan.toTransition);
 
-        return { vpcPlan: vpcPlan, subnetPlan: subnetPlan, vpcSummary: summarizePlan(vpcPlan), subnetSummary: summarizePlan(subnetPlan) };
+        return {
+            vpcPlan: vpcPlan, subnetPlan: subnetPlan, sgPlan: sgPlan,
+            vpcSummary: summarizePlan(vpcPlan), subnetSummary: summarizePlan(subnetPlan), sgSummary: summarizePlan(sgPlan)
+        };
     },
 
     _lookupCiByCorrelationId: function(correlationId, table) {

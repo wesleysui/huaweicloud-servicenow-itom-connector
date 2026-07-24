@@ -1,10 +1,23 @@
 // Script Include: HuaweiVpcDiscovery
-// HC ITOM Connector Phase 2B - VPC + Subnet discovery. Sibling to
-// HuaweiECSDiscovery.js, not a modification of it - that file is real-PDI
-// verified and intentionally left untouched (see docs/ROADMAP.md's Phase
-// 2B plan, "non-negotiable constraint").
+// HC ITOM Connector Phase 2B - VPC + Subnet discovery, extended in Phase
+// 2C to also cover Security Group (same VPC API family, same signing/
+// pagination/retry harness - the reuse case is identical to why VPC and
+// Subnet share this one file, see below). Sibling to HuaweiECSDiscovery.js,
+// not a modification of it - that file is real-PDI verified and
+// intentionally left untouched.
 //
-// One file for both VPC and Subnet fetch/reconcile, not two, because:
+// Security Group -> ECS instance is NOT related here (no "Secures"
+// relation) - ECS is discovered in a separate Script Include/call, and
+// this project has no established pattern yet for relating CIs across two
+// separate discovery runs (IRE relations[] entries reference items[] by
+// array index, which only resolves within one createOrUpdateCI() call).
+// Matches the fact that ECS<->VPC/Subnet aren't related to each other
+// either today - a real, documented gap, not a silent omission. See
+// lib/mapSecurityGroupToIRE.js's header comment for the CI class research
+// (AWS's cmdb_ci_compute_security_group) behind CI_CLASS_SECURITY_GROUP
+// below.
+//
+// One file for VPC, Subnet, and Security Group fetch/reconcile, not three, because:
 // ServiceNow scoped scripts cannot require(), so splitting would force a
 // second full verbatim copy of the SHA-256/HMAC-SHA256 crypto port below
 // (doubling the drift-check maintenance burden - see check-mirror-drift.js);
@@ -24,12 +37,13 @@
 // precedent) - covered by check-mirror-drift.js's third PAIRS entry.
 //
 // Pagination is DIFFERENT from ECS's: Huawei's VPC service
-// (GET /v1/{project_id}/vpcs, /subnets) is Neutron/OpenStack-derived and -
-// from general knowledge, NOT YET VERIFIED against this project's real
-// sandbox - uses marker/cursor pagination (?marker=<last-seen-id>, response
-// carries page_info.next_marker), not ECS's offset-as-page-number. See
-// lib/vpcPagination.js and docs/ROADMAP.md's Phase 2B Step 0/2/3 - confirm
-// the real shape against a live call before trusting _fetchPage() below.
+// (GET /v1/{project_id}/vpcs, /subnets) is Neutron/OpenStack-derived - uses
+// marker/cursor pagination (?marker=<last-seen-id>, response carries
+// page_info.next_marker), not ECS's offset-as-page-number. Real-PDI
+// verified for VPC/Subnet (Phase 2B, HC6-HC10) - see lib/vpcPagination.js.
+// Security Group's v3 endpoint reuses the same _fetchPage()/_fetchAllPages()
+// below on the assumption its pagination shape matches; NOT YET verified -
+// confirm on Security Group's first real-PDI run.
 //
 // CI classes (CI_CLASS_VPC/CI_CLASS_SUBNET below) confirmed via real-PDI
 // testing (docs/REAL-PDI-REPLAY-CHECKLIST.md's Phase 2B addendum). First
@@ -92,6 +106,16 @@ HuaweiVpcDiscovery.prototype = {
 
     fetchSubnets: function() {
         return this._fetchAllPages('/v1/' + this.projectId + '/subnets', 'subnets');
+    },
+
+    // Security Group uses the VPC v3 API (ShowSecurityGroup/ListSecurityGroups
+    // per Huawei's official docs), not v1 like VPC/Subnet above - different
+    // path prefix, same host/signing/marker-pagination convention, so
+    // _fetchAllPages() below is reused as-is. NOT YET VERIFIED against this
+    // project's real sandbox that v3's marker pagination shape matches v1's
+    // exactly (page_info.next_marker) - confirm on first real-PDI run.
+    fetchSecurityGroups: function() {
+        return this._fetchAllPages('/v3/' + this.projectId + '/vpc/security-groups', 'security_groups');
     },
 
     // Shared marker-pagination driver for both endpoints - the actual reuse
@@ -192,10 +216,19 @@ HuaweiVpcDiscovery.prototype = {
     CI_CLASS_CLOUD_SERVICE_ACCOUNT: 'cmdb_ci_cloud_service_account',
     HOSTING_RELATION_TYPE: 'Hosted on::Hosts',
 
-    reconcileCIs: function(vpcs, subnets) {
+    // Security Group addition (Phase 2C) - mirrors
+    // lib/mapSecurityGroupToIRE.js inline. CI_CLASS_SECURITY_GROUP is a
+    // starting hypothesis from AWS's Service Graph Connector docs, NOT YET
+    // real-PDI confirmed (may need its own Identification Rule, same as
+    // cmdb_ci_network/cmdb_ci_cloud_subnet did in Phase 2B) - see that lib
+    // file's header comment for the full research trail.
+    CI_CLASS_SECURITY_GROUP: 'cmdb_ci_compute_security_group',
+
+    reconcileCIs: function(vpcs, subnets, securityGroups) {
         vpcs = vpcs || [];
         subnets = subnets || [];
-        if (!vpcs.length && !subnets.length) return;
+        securityGroups = securityGroups || [];
+        if (!vpcs.length && !subnets.length && !securityGroups.length) return;
 
         var items = [];
         var relations = [];
@@ -232,9 +265,9 @@ HuaweiVpcDiscovery.prototype = {
             // Relation direction: `parent` = the DEPENDENT item itself, `child` = what
             // satisfies its dependency (the host) - confirmed backward from initial
             // intuition via a real MISSING_DEPENDENCY error's arrow notation. See
-            // lib/mapVpcSubnetToIRE.js's buildIREPayload() comment and docs/ROADMAP.md's
-            // Phase 2B real-PDI log for the full reasoning trail. OPPOSITE of
-            // HuaweiECSDiscovery.js's "Runs on::Runs" relation (parent=host, child=VM).
+            // lib/mapVpcSubnetToIRE.js's buildIREPayload() comment for the full
+            // reasoning trail. OPPOSITE of HuaweiECSDiscovery.js's "Runs on::Runs"
+            // relation (parent=host, child=VM).
             relations.push({ parent: String(datacenterIndex), child: String(accountIndex), type: this.HOSTING_RELATION_TYPE });
         }
 
@@ -290,6 +323,38 @@ HuaweiVpcDiscovery.prototype = {
             gs.warn('[HuaweiVpcDiscovery] ' + unmatchedSubnetIds.length + ' subnet(s) had no matching VPC in this fetch: ' + unmatchedSubnetIds.join(', '));
         }
 
+        // Security Group: one item per group, plus a Contains::Contained by
+        // relation to its parent VPC using the SAME vpcIndexById built above
+        // for subnets - only works because security groups are combined into
+        // this SAME createOrUpdateCI() call, not a separate one (array-index
+        // relations don't resolve across separate calls). No relation to ECS
+        // instances - see this file's header comment for why.
+        var unmatchedSgVpcIds = [];
+        for (var k = 0; k < securityGroups.length; k++) {
+            var sg = securityGroups[k];
+            items.push({
+                className: this.CI_CLASS_SECURITY_GROUP,
+                values: {
+                    name: sg.name || '',
+                    correlation_id: sg.id || '',
+                    object_id: sg.id || '',
+                    short_description: sg.description || 'Huawei Cloud Security Group - discovered via custom REST integration',
+                    discovery_source: 'Huawei Cloud Custom Discovery'
+                }
+            });
+            var sgIndex = items.length - 1;
+            var sgVpcIndex = vpcIndexById[sg.vpc_id];
+            if (sgVpcIndex == null) {
+                unmatchedSgVpcIds.push(sg.vpc_id);
+                continue;
+            }
+            relations.push({ parent: String(sgVpcIndex), child: String(sgIndex), type: this.CONTAINMENT_RELATION_TYPE });
+        }
+
+        if (unmatchedSgVpcIds.length) {
+            gs.warn('[HuaweiVpcDiscovery] ' + unmatchedSgVpcIds.length + ' security group(s) had no matching VPC in this fetch: ' + unmatchedSgVpcIds.join(', '));
+        }
+
         // createOrUpdateCI takes TWO arguments: a source-identifier string,
         // then the payload as a JSON-encoded STRING (not an object) - same
         // calling convention gotcha already documented in
@@ -306,11 +371,11 @@ HuaweiVpcDiscovery.prototype = {
         // silently looks like success. This same bug pattern exists in
         // HuaweiECSDiscovery.js/HcConnectorEcsSync.js too, just never
         // exercised there since ECS's real-PDI testing never hit an actual
-        // IRE-level error - see docs/ROADMAP.md.
+        // IRE-level error.
         try {
             var payload = JSON.stringify({ items: items, relations: relations });
             var rawResult = sn_cmdb.IdentificationEngine.createOrUpdateCI('Huawei Cloud Custom Discovery', payload);
-            gs.info('[HuaweiVpcDiscovery] IRE result for ' + vpcs.length + ' vpc(s) + ' + subnets.length + ' subnet(s): ' + rawResult);
+            gs.info('[HuaweiVpcDiscovery] IRE result for ' + vpcs.length + ' vpc(s) + ' + subnets.length + ' subnet(s) + ' + securityGroups.length + ' security group(s): ' + rawResult);
             return JSON.parse(rawResult);
         } catch (ex) {
             gs.error('[HuaweiVpcDiscovery] IRE exception: ' + ex.message);
@@ -320,8 +385,9 @@ HuaweiVpcDiscovery.prototype = {
     run: function() {
         var vpcs = this.fetchVPCs();
         var subnets = this.fetchSubnets();
-        gs.info('[HuaweiVpcDiscovery] Fetched ' + vpcs.length + ' VPC(s) and ' + subnets.length + ' subnet(s) across all pages');
-        if (vpcs.length || subnets.length) this.reconcileCIs(vpcs, subnets);
+        var securityGroups = this.fetchSecurityGroups();
+        gs.info('[HuaweiVpcDiscovery] Fetched ' + vpcs.length + ' VPC(s), ' + subnets.length + ' subnet(s), and ' + securityGroups.length + ' security group(s) across all pages');
+        if (vpcs.length || subnets.length || securityGroups.length) this.reconcileCIs(vpcs, subnets, securityGroups);
     },
 
     // ------------------------------------------------------------------
