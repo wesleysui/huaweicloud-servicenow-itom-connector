@@ -593,12 +593,37 @@ built, not assumed to work until tried.
   licensed/active on this instance (a separate question from this
   content pack being installed) - needs checking before assuming a real
   Discovery Schedule against a cluster will actually run.
-- Decide in-cluster vs. external MID Server placement - a real
-  infrastructure/security-posture decision, not a technical unknown to
-  resolve through more research.
-- If external + private-access-only, decide how the MID Server reaches
-  the cluster's VPC (dedicated ECS instance in-VPC, reuse of an existing
-  one, VPN, or peering).
+- ~~Decide in-cluster vs. external MID Server placement~~ - **DECIDED**:
+  in-cluster. Avoids the network-reachability question entirely (no
+  VPN/peering/public-API-exposure decision needed) and the
+  auto-authenticating ServiceAccount-token mechanism avoids manual
+  Bearer Token management - the more self-contained option, accepting
+  "one MID Server workload per cluster" as the real tradeoff.
+- **NOT yet resolved**: which in-cluster mechanism to actually deploy.
+  Two real, different options turned up in research, not yet compared on
+  this instance:
+  1. A generic **containerized MID Server** (officially supported since
+     the Rome release) - the classic mechanism, works with the base
+     Discovery product + the Kubernetes pattern content already
+     confirmed installed (`sn_itom_pattern`). Requires downloading a MID
+     Server container image from ServiceNow (needs instance/HI
+     credentials), a container registry the cluster can pull from
+     (Huawei's SWR would be the natural choice), a Deployment + minimal
+     read-only ServiceAccount/ClusterRole, and MID Server config pointing
+     back at this instance.
+  2. **Kubernetes Visibility Agent** (formerly "CNO for Visibility") - a
+     separate, purpose-built, Helm-chart-installed ServiceNow product
+     specifically for Kubernetes visibility, distinct from a generic MID
+     Server. NOT yet confirmed whether this is available/licensed on
+     this instance, or how its data model compares to the classic
+     MID-Server + Kubernetes-Discovery-Pattern mechanism already
+     confirmed available. Needs a real availability check before
+     choosing between the two, same discipline as every other "does this
+     real thing exist here" question in this project.
+- Downloading/building/deploying the actual MID Server (or Visibility
+  Agent) container is real infrastructure work beyond what a Background
+  Script can verify - this is the next real session's starting point,
+  not something to rush through.
 
 ## Roadmap review (2026-07-25) — candidate resource types beyond the current plan
 
