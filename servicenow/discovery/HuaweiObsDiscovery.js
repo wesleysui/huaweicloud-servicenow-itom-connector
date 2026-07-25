@@ -17,8 +17,8 @@
 // (Huawei's own doc text reads as if there were one, but a real 403
 // SignatureDoesNotMatch error echoed the server's own computed
 // StringToSign back verbatim, byte-for-byte, proving there's exactly ONE
-// newline before the resource path when CanonicalizedHeaders is empty -
-// matches classic AWS S3 SigV2's format exactly). For this project's
+// newline before the resource path when CanonicalizedHeaders is empty).
+// For this project's
 // single GET-with-no-x-obs-headers ListBuckets call: Content-MD5/
 // Content-Type/CanonicalizedHeaders are all empty, and
 // CanonicalizedResource is "/" (bucket-list, no specific bucket) - so
@@ -55,19 +55,19 @@
 //
 // CI class (CI_CLASS_OBS below) is `x_2021019_huawei_0_huawei_cloud_obs_bucket`,
 // a dedicated class this project's own scoped app owns - NOT a borrowed
-// platform class. `cmdb_ci_cloud_object_storage` (AWS's own real class for
-// S3) doesn't exist on this instance (confirmed via a real sys_db_object
-// query, zero results; two follow-up plugin installs - Service Mapping,
-// then CMDB CI Class Models - both left it missing). The two real
-// remaining generic candidates were checked field-by-field and both
-// rejected on real semantic grounds: `cmdb_ci_cloud_storage_account` is
-// Azure-Storage-Account-shaped (bundles blob/file/queue/table services -
-// OBS is flat, S3-shaped, no account tier); `cmdb_ci_storage_container`
+// platform class. A more specific object-storage class was researched and
+// expected to exist, but doesn't on this instance (confirmed via a real
+// sys_db_object query, zero results; two follow-up plugin installs -
+// Service Mapping, then CMDB CI Class Models - both left it missing). The
+// two real remaining generic candidates were checked field-by-field and
+// both rejected on real semantic grounds: `cmdb_ci_cloud_storage_account`
+// is shaped like a multi-service storage-account bundle (blob/file/queue/
+// table services - OBS is flat, no account tier); `cmdb_ci_storage_container`
 // is SAN/NAS-block-storage-shaped (total_size/controller fields, not
-// cloud object storage). Since AWS's own connector solves this exact
-// problem by defining its own dedicated class rather than reusing a
-// mismatched generic one, this project did the same - see
-// lib/mapObsToIRE.js's header comment for the full investigation trail.
+// cloud object storage). Since a dedicated class is the standard way to
+// model a resource type with no clean generic fit, this project built its
+// own - see lib/mapObsToIRE.js's header comment for the full investigation
+// trail.
 // Created via Studio, extending `cmdb_ci` directly (a more specific
 // `cmdb_ci_cloud_resource_base` ancestor exists and would have been
 // preferred, but wasn't extendable from this scoped app in Studio's

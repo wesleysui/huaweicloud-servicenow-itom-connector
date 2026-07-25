@@ -38,11 +38,11 @@
 > dedicated custom CI class** (`x_2021019_huawei_0_huawei_cloud_obs_bucket`,
 > extends `cmdb_ci`, manual Independent Identification Rule on
 > `correlation_id`) since no existing platform class was a genuine
-> semantic fit - matches AWS's own approach of shipping a dedicated S3
-> bucket class rather than reusing a mismatched generic one; also the
-> only resource type here with its own signing scheme (HMAC-SHA1 +
-> base64, not the IAM-wide SDK-HMAC-SHA256 every other service uses) and
-> an XML (not JSON) response.
+> semantic fit - a dedicated class is the standard way to model a
+> resource type with no clean generic fit rather than reusing a
+> mismatched generic one; also the only resource type here with its own
+> signing scheme (HMAC-SHA1 + base64, not the IAM-wide SDK-HMAC-SHA256
+> every other service uses) and an XML (not JSON) response.
 > Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config

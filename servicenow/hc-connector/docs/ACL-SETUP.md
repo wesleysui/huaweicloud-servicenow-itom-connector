@@ -93,11 +93,11 @@ change to the ACLs above).
 
 OBS is the one resource type in this project with no suitable existing
 CMDB class - see `servicenow/discovery/lib/mapObsToIRE.js`'s header
-comment for the full investigation (AWS's own real class doesn't exist on
-a base instance; the two remaining generic candidates are both real
-semantic mismatches for flat, S3-shaped object storage). Matches AWS's
-own approach of shipping a dedicated class rather than reusing a
-mismatched one.
+comment for the full investigation (a more specific class was researched
+and expected to exist but doesn't on a base instance; the two remaining
+generic candidates are both real semantic mismatches for flat object
+storage). A dedicated class is the standard way to model a resource type
+with no clean generic fit rather than reusing a mismatched one.
 
 1. Open Studio for the app at scope `x_2021019_huawei_0`.
 2. System Definition > Tables > New.

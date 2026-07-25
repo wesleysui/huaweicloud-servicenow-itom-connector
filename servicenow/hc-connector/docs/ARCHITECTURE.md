@@ -412,34 +412,36 @@ FunctionGraph/API Gateway account, see Phase 5 below).
       and CanonicalizedResource, but a real 403 `SignatureDoesNotMatch`
       error echoed the server's own computed StringToSign back verbatim,
       proving there's exactly ONE newline when CanonicalizedHeaders is
-      empty (matches classic AWS S3 SigV2 exactly). The response is also
+      empty. The response is also
       XML, not JSON - the only Huawei API family in this project that
       isn't - parsed via a targeted regex extraction
       (`lib/parseObsBucketsXml.js`), not a namespace-aware XML DOM parse
       (the response declares a default XML namespace with no established,
       real-PDI-confirmed pattern for namespace-aware lookup in a
       ServiceNow scoped script).
-   2. **No suitable existing CMDB class.** AWS's own real class for S3
-      (`cmdb_ci_cloud_object_storage`) doesn't exist on a base instance -
+   2. **No suitable existing CMDB class.** A more specific object-storage
+      class was researched and expected to exist
+      (`cmdb_ci_cloud_object_storage`), but doesn't on a base instance -
       confirmed via a real `sys_db_object` query (zero results), then two
       follow-up plugin install attempts (Service Mapping, then CMDB CI
       Class Models) both left it missing, confirmed again via a real
       `sys_plugins` query finding neither installed under those names.
-      `cmdb_ci_aws_s3_bucket` (AWS's own even more specific class) ships
-      with AWS's actual paid connector product, out of scope to depend on
-      for a Huawei connector. The two remaining real, already-existing
+      A couple of even more specific, vendor-named bucket class
+      candidates were also checked and don't exist - those ship with a
+      separate, dedicated connector product, out of scope to depend on
+      for this project. The two remaining real, already-existing
       generic candidates were checked field-by-field, not by name, and
       both rejected on real semantic grounds:
-      `cmdb_ci_cloud_storage_account` is Azure-Storage-Account-shaped
-      (real `blob_service`/`file_service`/`queue_service`/`table_service`
-      fields bundling four service types under one resource - a real
-      structural mismatch for Huawei OBS, which is flat and S3-shaped, no
-      account tier); `cmdb_ci_storage_container` looked promising by name
-      but its real fields (`total_size`/`used_size`/`controller`/
-      `controller_type`) are SAN/NAS block-storage shaped, not cloud
-      object storage. Since AWS's own connector solves this exact problem
-      by defining its own dedicated class rather than reusing a
-      mismatched generic one, this project did the same:
+      `cmdb_ci_cloud_storage_account` is shaped like a multi-service
+      storage-account bundle (real `blob_service`/`file_service`/
+      `queue_service`/`table_service` fields bundling four service types
+      under one resource - a real structural mismatch for Huawei OBS,
+      which is flat, no account tier); `cmdb_ci_storage_container` looked
+      promising by name but its real fields (`total_size`/`used_size`/
+      `controller`/`controller_type`) are SAN/NAS block-storage shaped,
+      not cloud object storage. Since a dedicated class is the standard
+      way to model a resource type with no clean generic fit rather than
+      reusing a mismatched one, this project built its own:
       `x_2021019_huawei_0_huawei_cloud_obs_bucket`, created via Studio,
       extending `cmdb_ci` directly (a more specific
       `cmdb_ci_cloud_resource_base` ancestor exists and would have been

@@ -6,29 +6,29 @@
  * class. This followed the same real investigation this project applies
  * everywhere else, not a shortcut:
  *
- * 1. `cmdb_ci_cloud_object_storage` (the class AWS's own Service Graph
- *    Connector uses for S3) doesn't exist on this instance - a real
- *    `sys_db_object` query confirmed zero results, and two follow-up
- *    plugin installs (Service Mapping, then CMDB CI Class Models) both
- *    left it missing; a real `sys_plugins` query afterward found neither
- *    plugin installed under those names either. `cmdb_ci_aws_s3_bucket`
- *    (AWS's own even more specific class) and `cmdb_ci_s3_bucket` were
- *    also checked and don't exist - those ship with AWS's actual paid
- *    connector product, out of scope for a Huawei connector to depend on.
+ * 1. A more specific object-storage CI class was researched and expected
+ *    to exist, but doesn't on this instance - a real `sys_db_object`
+ *    query confirmed zero results, and two follow-up plugin installs
+ *    (Service Mapping, then CMDB CI Class Models) both left it missing; a
+ *    real `sys_plugins` query afterward found neither plugin installed
+ *    under those names either. A couple of even more specific,
+ *    vendor-named bucket class candidates were also checked and don't
+ *    exist - those ship with a separate, dedicated connector product,
+ *    out of scope for this project to depend on.
  * 2. The two remaining real, already-existing generic candidates were
  *    both checked field-by-field and rejected on real semantic grounds,
- *    not preference: `cmdb_ci_cloud_storage_account` is shaped exactly
- *    like an Azure Storage Account (real `blob_service`/`file_service`/
- *    `queue_service`/`table_service` fields bundling four service types
- *    under one resource) - a real structural mismatch for Huawei OBS,
- *    which is flat, S3-shaped (one bucket = one top-level resource, no
+ *    not preference: `cmdb_ci_cloud_storage_account` is shaped like a
+ *    multi-service storage-account bundle (real `blob_service`/
+ *    `file_service`/`queue_service`/`table_service` fields bundling four
+ *    service types under one resource) - a real structural mismatch for
+ *    Huawei OBS, which is flat (one bucket = one top-level resource, no
  *    account tier). `cmdb_ci_storage_container` looked promising by name
  *    but its real fields (`total_size`/`used_size`/`available_size`/
  *    `controller`/`controller_type`) are SAN/NAS block-storage shaped,
  *    not cloud object storage.
- * 3. Given neither real existing class fit and AWS's own connector solves
- *    this exact problem by defining its own dedicated class rather than
- *    reusing a mismatched generic one, this project did the same:
+ * 3. Given neither real existing class fit, and a dedicated class is the
+ *    standard way to model a resource type with no clean generic fit
+ *    rather than reusing a mismatched one, this project built its own:
  *    `x_2021019_huawei_0_huawei_cloud_obs_bucket`, created via Studio,
  *    extending `cmdb_ci` directly (the cleanest available base - a more
  *    specific `cmdb_ci_cloud_resource_base` ancestor exists and would
@@ -48,11 +48,11 @@
  * output ({name, creationDate, location, bucketType}), not the raw XML -
  * this file only handles the IRE mapping, XML parsing is a separate
  * concern. Bucket names are the natural unique key (Huawei enforces
- * global bucket-name uniqueness per-partition, same as AWS S3) - used as
- * both `name` and `correlation_id`, there's no separate UUID like every
- * other resource type in this project has. No `object_id` - this class
- * extends plain `cmdb_ci`, which doesn't have that field (unlike the
- * cloud-specific classes used elsewhere in this project).
+ * global bucket-name uniqueness per-partition) - used as both `name` and
+ * `correlation_id`, there's no separate UUID like every other resource
+ * type in this project has. No `object_id` - this class extends plain
+ * `cmdb_ci`, which doesn't have that field (unlike the cloud-specific
+ * classes used elsewhere in this project).
  *
  * No relations attempted in this first version - a brand-new class has
  * no OOTB containment/hosting rule registered at all, so this project's
