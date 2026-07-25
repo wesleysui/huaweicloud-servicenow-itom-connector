@@ -11,6 +11,7 @@ describe('mapEipToIREItem', () => {
         name: 'sandbox-eip-1',
         correlation_id: eip.id,
         ip_address: eip.public_ip_address,
+        netmask: '255.255.255.255',
         short_description: 'Huawei Cloud Elastic IP - discovered via custom REST integration',
         discovery_source: 'Huawei Cloud Custom Discovery'
       }

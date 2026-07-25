@@ -61,6 +61,24 @@
  * identificationAttempts) - `correlation_id` is kept for
  * consistency/future-proofing even though it isn't the active
  * identification path today.
+ *
+ * `netmask` is set explicitly to '255.255.255.255' (single-host mask) -
+ * cmdb_ci_ip_address is a GLOBAL, non-cloud-specific class shared by
+ * traditional network Discovery, other cloud connectors, and manual CMDB
+ * entries alike (unlike this project's "Cloud X"-prefixed classes for
+ * VPC/Subnet/Security Group/ELB/RDS, which are vendor-agnostic but still
+ * cloud-scoped) - since its real Identification Rule keys on
+ * `ip_address`+`netmask` together, leaving netmask blank/undefined makes
+ * this composite identity incomplete and its matching behavior against
+ * other sources' records unpredictable. An EIP is a standalone public
+ * address, not part of a locally-managed subnet from this project's point
+ * of view, so a single-host mask is the accurate, self-consistent value -
+ * not a made-up workaround. Real-PDI confirmed the actual Identification
+ * Rule ("IP Address") keys on THREE attributes, not two:
+ * `ip_address`+`netmask`+`network_partition_identifier` - this third
+ * field is left unset (matches consistently as empty across runs, real-PDI
+ * confirmed idempotent) since this project has no concept of network
+ * partitions to populate it with.
  */
 
 var CI_CLASS_EIP = 'cmdb_ci_ip_address';
@@ -79,6 +97,7 @@ function mapEipToIREItem(eip) {
       name: eip.alias || eip.public_ip_address,
       correlation_id: eip.id,
       ip_address: eip.public_ip_address,
+      netmask: '255.255.255.255',
       short_description: 'Huawei Cloud Elastic IP - discovered via custom REST integration',
       discovery_source: 'Huawei Cloud Custom Discovery'
     }

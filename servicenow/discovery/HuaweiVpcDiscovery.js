@@ -48,7 +48,13 @@
 // from the EIP item after real-PDI testing showed cmdb_ci_ip_address has
 // no such field (silently dropped with a logged warning, not an error) -
 // real identification uses an OOTB "IP Address" rule keyed on
-// `ip_address`+`netmask` instead.
+// `ip_address`+`netmask` instead. `netmask` is set explicitly to
+// '255.255.255.255' (single-host mask, accurate for a standalone public
+// EIP) - cmdb_ci_ip_address is a GLOBAL, non-cloud-specific class shared
+// with traditional network Discovery and other connectors, so leaving
+// this half of its composite identity key blank would make matching
+// against other sources' records unpredictable - see lib/mapEipToIRE.js's
+// header comment for the full reasoning.
 //
 // Security Group -> ECS instance is NOT related here (no "Secures"
 // relation) - ECS is discovered in a separate Script Include/call, and
@@ -461,6 +467,7 @@ HuaweiVpcDiscovery.prototype = {
                     name: eip.alias || eip.public_ip_address || '',
                     correlation_id: eip.id || '',
                     ip_address: eip.public_ip_address || '',
+                    netmask: '255.255.255.255',
                     short_description: 'Huawei Cloud Elastic IP - discovered via custom REST integration',
                     discovery_source: 'Huawei Cloud Custom Discovery'
                 }
