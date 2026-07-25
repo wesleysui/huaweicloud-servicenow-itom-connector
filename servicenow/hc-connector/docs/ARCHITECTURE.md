@@ -477,6 +477,61 @@ FunctionGraph/API Gateway account, see Phase 5 below).
 Each phase gets its own detailed plan, explicit approval, and end-of-phase
 report before the next one starts.
 
+## Roadmap review (2026-07-25) — candidate resource types beyond the current plan
+
+While researching CCE's discovery boundary, this project's resource
+coverage was cross-referenced against a mainstream cloud connector's own
+published resource/CI-class list (not the "best-fit-name" style research
+used for individual mappings elsewhere - a direct list of every resource
+type it covers). Two findings shaped this section:
+
+- **Messaging (queues/topics), CDN, DNS, IAM, and container orchestration
+  are NOT in that connector's own base resource list either** - the same
+  boundary this project already drew for CCE (cluster only, no
+  node/namespace/workload) turns out to match the industry pattern more
+  broadly: mainstream CMDB connectors stay focused on infrastructure
+  (compute/network/storage/database/load-balancing), not the full breadth
+  of a cloud vendor's managed-service catalog. This is reassuring
+  evidence the current 10-resource-type scope isn't an arbitrary subset -
+  it's close to the actual conventional boundary.
+- **A handful of real gaps worth tracking as future candidates**, none
+  urgent, none currently planned as a numbered phase:
+  - **Function-as-a-Service** (Huawei FunctionGraph) - already tracked as
+    part of Phase 5's event-gateway work (`x_hwc.itom` FunctionGraph/API
+    Gateway reference implementation), not a new addition, just
+    confirmed as a real, recognized resource category elsewhere too.
+  - **A managed NoSQL/key-value database service** (distinct from the
+    relational `cmdb_ci_cloud_database` class RDS already uses) - Huawei
+    has multiple candidate services here (GaussDB NoSQL, DDS); not yet
+    scoped, no CI class chosen, would need the same research-then-verify
+    process as every resource type in this project.
+  - **Multi-account/organization structure as a real CMDB CI**
+    (`cmdb_ci_cloud_org`-style class) - this project currently models
+    multi-account/region structure via its own `HC Cloud Account`/
+    `HC Cloud Region` tables (Phase 1), not a CMDB CI. Worth a future
+    look at whether surfacing this as a real CI (rather than only an
+    app-internal bookkeeping table) adds value, but a real design
+    question, not a gap to just fill.
+  - **Availability Zone as its own CI**, more granular than the current
+    shared `cmdb_ci_logical_datacenter` per-region placeholder used
+    throughout Phase 2B/2C/3. Would only matter once AZ-level placement
+    actually needs representing (e.g. AZ-aware capacity/failure-domain
+    reporting) - not clearly valuable yet on its own.
+  - **NAT Gateway - worth one more look, not a reversal yet.** Phase 2C's
+    decision to skip Route Table/NAT Gateway/VPC Peering Discovery was
+    based on finding no CI class for any of the three. This review found
+    a real `cmdb_ci_cloud_gateway` class in the same reference connector's
+    list that wasn't checked against NAT Gateway specifically at the
+    time - worth confirming on this instance (existence + field shape)
+    before deciding whether to revisit that decision for NAT Gateway
+    alone; Route Table and VPC Peering had no candidate class then and
+    none turned up in this review either.
+
+None of the above changes the current phase plan - CCE cluster Discovery
+(this phase) and the existing Phase 4-6 scope proceed as already defined.
+These are logged here so they aren't lost, not because they're
+next.
+
 ## Setup automation & distribution packaging (cross-cutting, not a numbered phase)
 
 Orthogonal to the resource-coverage phases above — addresses *how a third
