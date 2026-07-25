@@ -584,9 +584,15 @@ built, not assumed to work until tried.
 
 **Open, unresolved before this phase can be scoped for real:**
 
-- Confirm whether "Discovery and Service Mapping Patterns" is available/
-  installable on a target instance (same kind of check already done for
-  OBS/CCE's CI classes).
+- ~~Confirm whether "Discovery and Service Mapping Patterns" is
+  available/installable on a target instance~~ - **CONFIRMED real-PDI**:
+  the app (`sn_itom_pattern`) installed successfully, and a real
+  "Kubernetes" option appeared in Discovery Credentials' Type field
+  afterward, confirming the Kubernetes pattern content is present. NOT
+  yet confirmed whether the underlying base Discovery product itself is
+  licensed/active on this instance (a separate question from this
+  content pack being installed) - needs checking before assuming a real
+  Discovery Schedule against a cluster will actually run.
 - Decide in-cluster vs. external MID Server placement - a real
   infrastructure/security-posture decision, not a technical unknown to
   resolve through more research.
