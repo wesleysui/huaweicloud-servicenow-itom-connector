@@ -125,6 +125,34 @@ into, a brand-new class has no OOTB containment/hosting rule registered
 at all, so `HuaweiObsDiscovery.js` ships items with zero relations and
 this was accepted with `hasError:false` on the first real-PDI run.
 
+## Step 5 (Phase 3) — Create the CCE cluster custom CI class
+
+CCE (cluster discovery only - see `servicenow/discovery/lib/mapCceToIRE.js`'s
+header comment for why node/namespace/workload/service/ingress are a real
+architectural boundary, not a scope-narrowing shortcut) has the same
+"nothing fits" situation as OBS, but more so - a real `sys_db_object`
+search for "kubernetes"/"k8s"/"cce"/"container_cluster"/"ecs_cluster"/
+generic "cluster" all returned zero results, not even a mismatched
+generic candidate to consider and reject.
+
+1. Open Studio for the app at scope `x_2021019_huawei_0`.
+2. System Definition > Tables > New.
+3. **Label**: `Huawei Cloud CCE Cluster`.
+4. **Extends table**: `Configuration Item [cmdb_ci]` (same reasoning as
+   Step 4 - the more specific `cmdb_ci_cloud_resource_base` ancestor
+   wasn't extendable from this scoped app either).
+5. Save. Real-PDI confirmed this produces
+   `x_2021019_huawei_0_huawei_cloud_cce_cluster`.
+6. Open **CI Class Manager**, find `Huawei Cloud CCE Cluster` in the
+   class tree, go to its **Identification Rule** tab, and create one:
+   - **Independent**: checked
+   - One Identifier Entry, **Criterion Attributes**: `correlation_id`
+
+No relations needed - same outcome as OBS's bucket class: a brand-new
+class has no OOTB containment/hosting rule registered at all, so
+`HuaweiCceDiscovery.js` ships items with zero relations and this was
+accepted with `hasError:false` on the first real-PDI run.
+
 ## Verification
 
 After Steps 1–3, before moving on to running `HcConnectorEcsSync.generated.js`:

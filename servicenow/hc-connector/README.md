@@ -42,7 +42,17 @@
 > resource type with no clean generic fit rather than reusing a
 > mismatched generic one; also the only resource type here with its own
 > signing scheme (HMAC-SHA1 + base64, not the IAM-wide SDK-HMAC-SHA256
-> every other service uses) and an XML (not JSON) response.
+> every other service uses) and an XML (not JSON) response. **CCE cluster
+> Discovery is also real-PDI verified**, same "nothing fits" situation as
+> OBS but more so (zero candidate classes found at all, not even a
+> mismatched one) - its own dedicated custom class
+> (`x_2021019_huawei_0_huawei_cloud_cce_cluster`), zero relations needed.
+> Node/namespace/workload/service/ingress (and Pods) are a real
+> architectural boundary, not a scope gap: reaching resources inside a
+> cluster needs a MID Server with network access to the cluster's own
+> Kubernetes API, a mechanism this project doesn't use anywhere else
+> (every other resource here is a direct, agentless REST call to
+> Huawei's public regional API).
 > Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
@@ -281,8 +291,8 @@ Verify the build tools directly:
 ```bash
 node servicenow/hc-connector/scripts/generate-table-docs.js
 node servicenow/hc-connector/scripts/generate-provision-script.js
-node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all six orchestrators' generated output
-node servicenow/hc-connector/scripts/check-mirror-drift.js          # 7 mirrored pairs (6 crypto + 1 severity map)
+node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all seven orchestrators' generated output
+node servicenow/hc-connector/scripts/check-mirror-drift.js          # 8 mirrored pairs (7 crypto + 1 severity map)
 ```
 
 ## What's still not included after Phase 2B

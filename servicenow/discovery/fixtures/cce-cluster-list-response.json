@@ -1,0 +1,30 @@
+{
+  "kind": "ClusterList",
+  "apiVersion": "v3",
+  "items": [
+    {
+      "kind": "Cluster",
+      "apiVersion": "v3",
+      "metadata": {
+        "name": "sandbox-1-cce",
+        "uid": "3a4b5c6d-7e8f-4a1b-9c0d-1e2f3a4b5c6d",
+        "alias": "sandbox-1-cce",
+        "creationTimestamp": "2026-07-24T03:12:45Z",
+        "updateTimestamp": "2026-07-24T03:20:11Z"
+      },
+      "spec": {
+        "type": "VirtualMachine",
+        "flavor": "cce.s1.small",
+        "version": "v1.28",
+        "platformVersion": "cce.28.4.8",
+        "description": ""
+      },
+      "status": {
+        "phase": "Available",
+        "endpoints": [
+          { "url": "https://192.168.10.10:5443", "type": "Internal" }
+        ]
+      }
+    }
+  ]
+}

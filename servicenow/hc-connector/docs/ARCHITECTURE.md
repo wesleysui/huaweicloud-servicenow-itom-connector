@@ -460,12 +460,50 @@ FunctionGraph/API Gateway account, see Phase 5 below).
    unlike every other resource type here) - and confirmed idempotent on a
    second run (`insertCount:0, refreshCount:5`, all `NO_CHANGE`).
 
-   Discovery work for CCE hasn't started; only the provisioning side is
-   verified.
-4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3
-   CCE stability and event-driven incremental capability; default off;
-   excludes `kube-system`, Jobs/CronJobs, completed Pods; 24h retirement
-   after termination.
+   **CCE: cluster Discovery real-PDI verified**, node/namespace/workload/
+   service/ingress deliberately out of scope for this architecture.
+   `HuaweiCceDiscovery.js` (own file/host, `cce.{region}.myhuaweicloud.com`,
+   real-PDI confirmed) fetches `GET /api/v3/projects/{project_id}/clusters`
+   (no pagination attempted, matching OBS's low-cardinality-resource
+   assumption) and reconciles into
+   `x_2021019_huawei_0_huawei_cloud_cce_cluster`, a dedicated custom CI
+   class - the same "nothing fits" situation as OBS, but more so: a real
+   `sys_db_object` search for kubernetes/k8s/cce/container_cluster/
+   generic-cluster classes on this instance found zero results, not even
+   a mismatched candidate to reject. Created via Studio (extends
+   `cmdb_ci`) with a manually-created Independent Identification Rule
+   (`correlation_id`), same process as OBS. The response is
+   Kubernetes-shaped (`kind`/`apiVersion`/`items[]`, each item nested
+   under `metadata`/`spec`/`status`) - the only Huawei API in this
+   project shaped that way, everything else is a flat object. Real-PDI
+   verified end to end (`hasError:false`, cluster CI inserted, zero
+   relations needed - matches OBS's outcome exactly) and confirmed
+   idempotent on a second run (`insertCount:0, refreshCount:1` - an
+   `UPDATE`, not `NO_CHANGE`, reflecting the cluster's real status
+   transitioning while it finished provisioning between the two runs,
+   still correctly matched to the same CI rather than creating a
+   duplicate).
+
+   Node/namespace/workload/service/ingress (and Pods, see Phase 4 below)
+   are a real architectural boundary, not a scope-narrowing shortcut:
+   discovering resources INSIDE a Kubernetes cluster requires reaching
+   the cluster's own Kubernetes API server - a MID Server positioned with
+   network access to the cluster, plus Kubernetes-native auth - a
+   fundamentally different discovery mechanism than every other resource
+   type in this project (a direct, agentless REST call to Huawei's public
+   regional API, no MID Server anywhere else). This boundary was
+   confirmed by checking how mainstream cloud connectors handle the
+   equivalent managed-Kubernetes case: they don't extend their own
+   agentless, cloud-management-API-based mechanism into the cluster
+   either - that's handled by a separate, MID-Server-based Kubernetes
+   discovery pattern, a genuinely different product/mechanism, not a
+   missing feature of the cloud-resource connector.
+4. **Opt-in Pod discovery** — blocked on the same MID Server boundary as
+   CCE's other in-cluster resources above, not just "not started yet."
+   The original design (namespace/label-filtered, default off, excludes
+   `kube-system`, Jobs/CronJobs, completed Pods, 24h retirement after
+   termination) remains the intended shape if this boundary is ever
+   addressed with a real MID Server deployment story.
 5. **Event gateway** — a real FunctionGraph/API Gateway reference
    implementation in front of Cloud Eye/CTS/Config/SMN, signature
    verification, HTTPS/origin allow-listing, dedup, retry, dead-letter
