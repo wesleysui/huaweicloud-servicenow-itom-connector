@@ -515,6 +515,85 @@ FunctionGraph/API Gateway account, see Phase 5 below).
 Each phase gets its own detailed plan, explicit approval, and end-of-phase
 report before the next one starts.
 
+## Phase 4 research: the MID Server question for in-cluster discovery
+
+Research pass (2026-07-25), not yet a decision or a build - this
+documents what's actually involved before Phase 4 gets scoped.
+
+**How the standard mechanism actually works.** Discovering resources
+inside a Kubernetes cluster (node/namespace/pod/service/deployment/
+replicaset/daemonset/statefulset/container/image) is handled by a
+horizontal Discovery Pattern that talks to the cluster's own Kubernetes
+API server directly (`/api/v1/pods`, `/apis/apps/v1/deployments`, etc.),
+not the cloud vendor's management API. It requires:
+
+- A platform application ("Discovery and Service Mapping Patterns" from
+  the ServiceNow Store) installed to get the Kubernetes credential type
+  and pattern - NOT yet checked whether this is available on this
+  instance (a real check is needed before this phase can start, same as
+  the OBS/CCE plugin-availability checks already done for those CI
+  classes).
+- A MID Server with network reachability to the cluster's API endpoint
+  and a Kubernetes credential (Bearer token or client cert).
+- The API server's SSL certificate trusted by the MID Server's Java
+  keystore, or discovery fails with SSL handshake errors.
+- Namespace/label filtering to control scope - a real environment can
+  produce 150+ CIs per cluster (cluster/node/pod/service/deployment/
+  replicaset/daemonset/statefulset/container/image each become their own
+  CI) without it. This is the concrete reason behind this project's
+  original "opt-in, namespace/label-filtered, default off" design for
+  Pod discovery - not a made-up caution, a documented real volume
+  problem.
+
+**MID Server placement - two real options, a genuine tradeoff, not yet
+decided:**
+
+1. **In-cluster MID Server** - deploy the MID Server itself as a
+   workload inside the target Kubernetes cluster (via a Deployment +
+   ServiceAccount + ClusterRole scoped to only the read permissions
+   needed). It auto-discovers and auto-authenticates to its own
+   cluster's API server via the pod-mounted ServiceAccount token - no
+   manual long-lived Bearer Token management. Tradeoff: needs one MID
+   Server workload per cluster (or a clear multi-cluster management
+   story if this project ever needs to discover more than one), and
+   that MID Server itself becomes a workload this project's Discovery
+   would presumably also need to account for.
+2. **External MID Server** (e.g. reusing the existing sandbox ECS
+   instance) - requires the MID Server to reach the cluster's API
+   endpoint over the network. Huawei CCE clusters support both a
+   private/intranet-only API endpoint (the safer default) and an
+   optional public API endpoint. If public access is enabled, an
+   external MID Server needs no VPN/peering - closer in spirit to this
+   project's existing zero-VPN, direct-API architecture, just with a
+   real MID Server process instead of a plain REST call. If only
+   private access is used (the more security-conscious choice many
+   real deployments make deliberately), the MID Server must be
+   network-positioned inside the same VPC (or reachable via VPN/peering)
+   - a real infrastructure requirement this project doesn't have
+   anywhere else.
+
+**A real automation opportunity, not yet built.** Huawei CCE has its own
+API for retrieving a cluster's certificate/kubeconfig, authenticated
+with the same AK/SK this project already uses everywhere else. This
+means the Kubernetes credential itself could potentially be fetched
+programmatically (mirroring this project's existing credential-handling
+pattern) rather than requiring a user to manually run `kubectl create
+token` and paste a long-lived Bearer Token into ServiceNow's Discovery
+Credentials by hand - worth designing in if/when this phase is actually
+built, not assumed to work until tried.
+
+**Open, unresolved before this phase can be scoped for real:**
+
+- Confirm whether "Discovery and Service Mapping Patterns" is available/
+  installable on a target instance (same kind of check already done for
+  OBS/CCE's CI classes).
+- Decide in-cluster vs. external MID Server placement - a real
+  infrastructure/security-posture decision, not a technical unknown to
+  resolve through more research.
+- If external + private-access-only, decide how the MID Server reaches
+  the cluster's VPC (dedicated ECS instance in-VPC, reuse of an existing
+  one, VPN, or peering).
+
 ## Roadmap review (2026-07-25) — candidate resource types beyond the current plan
 
 While researching CCE's discovery boundary, this project's resource
