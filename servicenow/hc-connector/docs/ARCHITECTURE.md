@@ -395,8 +395,71 @@ FunctionGraph/API Gateway account, see Phase 5 below).
    both inserted) and confirmed idempotent on a second run
    (`insertCount:0, refreshCount:1`, all `NO_CHANGE`).
 
-   Discovery work for OBS/CCE hasn't started; only the provisioning side
-   is verified for those two.
+   **OBS: Discovery real-PDI verified**, buckets only, permanently never
+   per-object (a bucket can hold millions of objects). Two things made
+   this the most involved resource type in this project so far:
+
+   1. **A genuinely different signing scheme.** OBS doesn't use the
+      IAM-wide "SDK-HMAC-SHA256" scheme every other service here does -
+      it uses its own, S3-compatible-style signature:
+      `Authorization: OBS <AK>:Base64(HMAC-SHA1(SK, StringToSign))`. This
+      needed a brand-new pure-JS HMAC-SHA1 implementation
+      (`lib/pureJsSha1.js`, cross-checked against Node's own `crypto` -
+      see that file's header comment for why hand-rolling was necessary
+      again, same platform constraint as SHA-256). One real correction
+      during testing: Huawei's own doc text for the StringToSign formula
+      reads as if there's an extra newline between CanonicalizedHeaders
+      and CanonicalizedResource, but a real 403 `SignatureDoesNotMatch`
+      error echoed the server's own computed StringToSign back verbatim,
+      proving there's exactly ONE newline when CanonicalizedHeaders is
+      empty (matches classic AWS S3 SigV2 exactly). The response is also
+      XML, not JSON - the only Huawei API family in this project that
+      isn't - parsed via a targeted regex extraction
+      (`lib/parseObsBucketsXml.js`), not a namespace-aware XML DOM parse
+      (the response declares a default XML namespace with no established,
+      real-PDI-confirmed pattern for namespace-aware lookup in a
+      ServiceNow scoped script).
+   2. **No suitable existing CMDB class.** AWS's own real class for S3
+      (`cmdb_ci_cloud_object_storage`) doesn't exist on a base instance -
+      confirmed via a real `sys_db_object` query (zero results), then two
+      follow-up plugin install attempts (Service Mapping, then CMDB CI
+      Class Models) both left it missing, confirmed again via a real
+      `sys_plugins` query finding neither installed under those names.
+      `cmdb_ci_aws_s3_bucket` (AWS's own even more specific class) ships
+      with AWS's actual paid connector product, out of scope to depend on
+      for a Huawei connector. The two remaining real, already-existing
+      generic candidates were checked field-by-field, not by name, and
+      both rejected on real semantic grounds:
+      `cmdb_ci_cloud_storage_account` is Azure-Storage-Account-shaped
+      (real `blob_service`/`file_service`/`queue_service`/`table_service`
+      fields bundling four service types under one resource - a real
+      structural mismatch for Huawei OBS, which is flat and S3-shaped, no
+      account tier); `cmdb_ci_storage_container` looked promising by name
+      but its real fields (`total_size`/`used_size`/`controller`/
+      `controller_type`) are SAN/NAS block-storage shaped, not cloud
+      object storage. Since AWS's own connector solves this exact problem
+      by defining its own dedicated class rather than reusing a
+      mismatched generic one, this project did the same:
+      `x_2021019_huawei_0_huawei_cloud_obs_bucket`, created via Studio,
+      extending `cmdb_ci` directly (a more specific
+      `cmdb_ci_cloud_resource_base` ancestor exists and would have been
+      preferred, but wasn't extendable from this scoped app in Studio's
+      table-creation UI - real-PDI observed, not assumed). A manual
+      Independent Identification Rule (criterion attribute
+      `correlation_id`) was created via CI Class Manager, the same
+      approach already proven for VPC/Subnet in Phase 2B. See
+      `docs/ACL-SETUP.md`'s Step 4 for the exact creation steps and
+      `servicenow/discovery/lib/mapObsToIRE.js`'s header comment for the
+      full investigation trail.
+
+   Real-PDI verified end to end: all 5 real buckets in the sandbox
+   account inserted with `hasError:false` - no relations needed at all
+   (a brand-new class has no OOTB containment/hosting rule registered,
+   unlike every other resource type here) - and confirmed idempotent on a
+   second run (`insertCount:0, refreshCount:5`, all `NO_CHANGE`).
+
+   Discovery work for CCE hasn't started; only the provisioning side is
+   verified.
 4. **Opt-in Pod discovery** — namespace/label-filtered, gated on Phase 3
    CCE stability and event-driven incremental capability; default off;
    excludes `kube-system`, Jobs/CronJobs, completed Pods; 24h retirement

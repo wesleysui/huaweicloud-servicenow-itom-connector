@@ -62,6 +62,12 @@ var PAIRS = [
     libFile: 'servicenow/discovery/lib/pureJsSha256.js',
     mirrorFile: 'servicenow/discovery/HuaweiRdsDiscovery.js',
     pattern: /0x[0-9a-fA-F]{8}/g
+  },
+  {
+    label: 'SHA-1 round/init hex constants: pureJsSha1.js -> HuaweiObsDiscovery.js',
+    libFile: 'servicenow/discovery/lib/pureJsSha1.js',
+    mirrorFile: 'servicenow/discovery/HuaweiObsDiscovery.js',
+    pattern: /0x[0-9a-fA-F]{8}/g
   }
 ];
 

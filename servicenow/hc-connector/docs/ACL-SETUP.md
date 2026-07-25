@@ -89,6 +89,42 @@ acceptance gates and can be added later without disrupting anything built
 here (adding a second, more restrictive role is additive, not a breaking
 change to the ACLs above).
 
+## Step 4 (Phase 3) — Create the OBS bucket custom CI class
+
+OBS is the one resource type in this project with no suitable existing
+CMDB class - see `servicenow/discovery/lib/mapObsToIRE.js`'s header
+comment for the full investigation (AWS's own real class doesn't exist on
+a base instance; the two remaining generic candidates are both real
+semantic mismatches for flat, S3-shaped object storage). Matches AWS's
+own approach of shipping a dedicated class rather than reusing a
+mismatched one.
+
+1. Open Studio for the app at scope `x_2021019_huawei_0`.
+2. System Definition > Tables > New.
+3. **Label**: `Huawei Cloud OBS Bucket`.
+4. **Extends table**: `Configuration Item [cmdb_ci]` - the intended
+   `Cloud Resource Base [cmdb_ci_cloud_resource_base]` ancestor was NOT
+   extendable from this scoped app in Studio's table-creation UI
+   (real-PDI observed, not a guess - the search field returns no results
+   for it by label or technical name, both from the table-creation form
+   and Studio's "Add Data" wizard).
+5. Save. Studio names the resulting table from the label -> real-PDI
+   confirmed this produces `x_2021019_huawei_0_huawei_cloud_obs_bucket`
+   (longer than the short-name convention used for this project's own
+   Step 1 tables, since it's generated from the full label rather than a
+   short technical name typed separately).
+6. Open **CI Class Manager**, find `Huawei Cloud OBS Bucket` in the class
+   tree, go to its **Identification Rule** tab, and create one:
+   - **Independent**: checked
+   - One Identifier Entry, **Criterion Attributes**: `correlation_id`
+   (same manual-Identification-Rule pattern already used for VPC/Subnet
+   in Phase 2B - a brand-new/extended class has no OOTB rule).
+
+No relations needed - unlike every OOTB class this project discovers
+into, a brand-new class has no OOTB containment/hosting rule registered
+at all, so `HuaweiObsDiscovery.js` ships items with zero relations and
+this was accepted with `hasError:false` on the first real-PDI run.
+
 ## Verification
 
 After Steps 1–3, before moving on to running `HcConnectorEcsSync.generated.js`:

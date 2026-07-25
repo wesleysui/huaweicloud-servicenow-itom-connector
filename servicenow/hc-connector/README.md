@@ -25,15 +25,24 @@
 > Gateway/VPC Peering Discovery are deliberately NOT built** — they're
 > routing config attached to a VPC/Subnet, not standalone discoverable
 > assets under ServiceNow's CMDB CI Class Model; Terraform-only coverage
-> is the intentional end state. **Phase 3's ELB and RDS Discovery are also
-> real-PDI verified** (`HuaweiElbDiscovery.js`/`HcConnectorElbSync.js` and
-> `HuaweiRdsDiscovery.js`/`HcConnectorRdsSync.js`, each its own API host,
+> is the intentional end state. **Phase 3's ELB, RDS, and OBS Discovery
+> are also real-PDI verified** (`HuaweiElbDiscovery.js`/`HcConnectorElbSync.js`,
+> `HuaweiRdsDiscovery.js`/`HcConnectorRdsSync.js`, and
+> `HuaweiObsDiscovery.js`/`HcConnectorObsSync.js`, each its own API host,
 > `cmdb_ci_cloud_load_balancer`/`cmdb_ci_cloud_database` both related to a
 > local logical-datacenter placeholder via `Hosted on::Hosts` - not ELB's
 > `vpc_id` field, since the real OOTB rule named the datacenter class
 > specifically; both identified via `object_id` through a real working
 > OOTB rule - ELB's first pass omitted it and hit a real error, RDS
-> included it proactively and matched on the first try).
+> included it proactively and matched on the first try). **OBS needed a
+> dedicated custom CI class** (`x_2021019_huawei_0_huawei_cloud_obs_bucket`,
+> extends `cmdb_ci`, manual Independent Identification Rule on
+> `correlation_id`) since no existing platform class was a genuine
+> semantic fit - matches AWS's own approach of shipping a dedicated S3
+> bucket class rather than reusing a mismatched generic one; also the
+> only resource type here with its own signing scheme (HMAC-SHA1 +
+> base64, not the IAM-wide SDK-HMAC-SHA256 every other service uses) and
+> an XML (not JSON) response.
 > Phase 1
 > (productization scaffold: tables, pure lib modules) is folded in below.
 > `servicenow/discovery/HuaweiECSDiscovery.js` gained an *optional* config
@@ -272,8 +281,8 @@ Verify the build tools directly:
 ```bash
 node servicenow/hc-connector/scripts/generate-table-docs.js
 node servicenow/hc-connector/scripts/generate-provision-script.js
-node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all five orchestrators' generated output
-node servicenow/hc-connector/scripts/check-mirror-drift.js          # 6 mirrored pairs (5 crypto + 1 severity map)
+node servicenow/hc-connector/scripts/build-script-include.js        # regenerates all six orchestrators' generated output
+node servicenow/hc-connector/scripts/check-mirror-drift.js          # 7 mirrored pairs (6 crypto + 1 severity map)
 ```
 
 ## What's still not included after Phase 2B
