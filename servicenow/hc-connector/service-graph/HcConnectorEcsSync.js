@@ -144,28 +144,43 @@ HcConnectorEcsSync.prototype = {
     _reconcileAndUpsert: function(account, region, servers) {
         var self = this;
 
-        // Re-resolve the same disco instance's reconcileCIs via a fresh fetch-time instance
-        // is unnecessary here - the caller already has `disco` from _fetchServers, but
-        // reconcileCIs only needs `this.region` (for the placeholder virtualization-server
-        // name) which a throwaway instance configured the same way reproduces identically.
-        var disco = new HuaweiECSDiscovery({ region: region.region });
-        var result = disco.reconcileCIs(servers);
+        // Zero servers this run is a valid, expected state (e.g. the
+        // account's only tracked instance was destroyed outside this
+        // project) - NOT the same thing as reconcileCIs() failing on a
+        // non-empty list. reconcileCIs([]) returns undefined by its own
+        // design (nothing to reconcile, see HuaweiECSDiscovery.js), and
+        // that undefined return must not be treated as an IRE failure here,
+        // or the retirement pass below never runs and a fully-emptied
+        // account can never have its stale CIs retired - a real gap found
+        // via real-PDI testing (an account dropping to zero ECS instances
+        // for the first time), not a hypothetical. Skip the reconcileCIs()
+        // call entirely when there's nothing to reconcile and fall through
+        // to sync-state planning with an empty seenRecords set, so existing
+        // rows correctly transition toward retirement.
+        if (servers.length > 0) {
+            // Re-resolve the same disco instance's reconcileCIs via a fresh fetch-time instance
+            // is unnecessary here - the caller already has `disco` from _fetchServers, but
+            // reconcileCIs only needs `this.region` (for the placeholder virtualization-server
+            // name) which a throwaway instance configured the same way reproduces identically.
+            var disco = new HuaweiECSDiscovery({ region: region.region });
+            var result = disco.reconcileCIs(servers);
 
-        // reconcileCIs catches its own exceptions internally and returns undefined on
-        // failure rather than rethrowing (see HuaweiECSDiscovery.js) - this is where that
-        // silent failure gets converted into a real thrown error our caller can act on.
-        if (!result) {
-            throw new Error('reconcileCIs returned no result - the IRE call likely failed, see the prior gs.error log from HuaweiECSDiscovery');
-        }
-        if (result.hasError) {
-            // Conservative for Phase 2A: treat any reported IRE error as a failure for the
-            // whole batch rather than guessing which items succeeded from the result shape.
-            // errorCount is per-item/per-relation in the real IRE response shape, not a
-            // top-level field (confirmed via Phase 2B real-PDI testing) - sum it up for a
-            // useful count.
-            var totalErrors = (result.items || []).reduce(function(sum, item) { return sum + (item.errorCount || 0); }, 0) +
-                (result.relations || []).reduce(function(sum, rel) { return sum + (rel.errorCount || 0); }, 0);
-            throw new Error('IRE reconciliation reported errors (errorCount=' + totalErrors + ') - see the prior gs.info log for the full result');
+            // reconcileCIs catches its own exceptions internally and returns undefined on
+            // failure rather than rethrowing (see HuaweiECSDiscovery.js) - this is where that
+            // silent failure gets converted into a real thrown error our caller can act on.
+            if (!result) {
+                throw new Error('reconcileCIs returned no result - the IRE call likely failed, see the prior gs.error log from HuaweiECSDiscovery');
+            }
+            if (result.hasError) {
+                // Conservative for Phase 2A: treat any reported IRE error as a failure for the
+                // whole batch rather than guessing which items succeeded from the result shape.
+                // errorCount is per-item/per-relation in the real IRE response shape, not a
+                // top-level field (confirmed via Phase 2B real-PDI testing) - sum it up for a
+                // useful count.
+                var totalErrors = (result.items || []).reduce(function(sum, item) { return sum + (item.errorCount || 0); }, 0) +
+                    (result.relations || []).reduce(function(sum, rel) { return sum + (rel.errorCount || 0); }, 0);
+                throw new Error('IRE reconciliation reported errors (errorCount=' + totalErrors + ') - see the prior gs.info log for the full result');
+            }
         }
 
         var seenRecords = servers.map(function(s) {
