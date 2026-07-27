@@ -1,23 +1,41 @@
 # huaweicloud-servicenow-itom-connector
 
 Reference implementation for integrating **Huawei Cloud** with **ServiceNow ITOM**
-(Provisioning, Discovery, Event Management) — since Huawei Cloud has no
-out-of-the-box ServiceNow Spoke/Connector, every pattern here is built from
-generic, extensible ServiceNow primitives (REST Messages, IRE, Event Rules,
-IaC Blueprints) that other unsupported clouds can reuse.
+(Provisioning, Discovery, Event Management, and Day-2 Operations) — since
+Huawei Cloud has no out-of-the-box ServiceNow Spoke/Connector, every pattern
+here is built from generic, extensible ServiceNow primitives (REST Messages,
+IRE, Event Rules, IaC Blueprints) that other unsupported clouds can reuse.
 
-> **Status: reference implementation / starter kit.** The mapping/business
-> logic is unit tested; the Terraform is statically validated in CI. **All
-> three ITOM pillars have been verified end-to-end against a real Huawei
-> Cloud sandbox account and a real ServiceNow PDI**: the `terraform/`
-> provisioning module (apply + destroy), the **full Discovery pipeline**
-> (AK/SK-signed auth → real HTTP fetch → pagination → IRE reconciliation
-> with a containment relationship — a real `cmdb_ci_vm_instance` CI was
-> created with zero errors), and **Event Management** (webhook → Event
-> Rule → a real alert with correctly mapped severity and a bound
-> `cmdb_ci`). See
-> [servicenow/event-management/README.md](servicenow/event-management/README.md)
-> for the Event Management setup detail.
+> **Status: reference implementation / starter kit.** Every capability
+> claimed below has been run against a **real Huawei Cloud sandbox account
+> and a real ServiceNow PDI** — not just unit tested. Where something
+> hasn't cleared that bar yet, the tables in this README say so explicitly
+> rather than rounding up.
+
+**Highlights, if you're skimming:**
+- **All three ITOM pillars work end-to-end today**: Terraform provisioning
+  (apply + destroy), CMDB Discovery across 10 resource types (compute,
+  network, storage, database, load balancer, object storage, container
+  cluster), and Event Management (Cloud Eye alarm → correctly severity-mapped,
+  CI-bound `em_event`).
+- **Day-2 operations, not just read-only Discovery** — ECS start/stop/reboot
+  from the CI form, with real async-job status tracking against Huawei's
+  own job-tracking API, not just "request sent."
+- **The signing is hand-rolled from scratch**: ServiceNow scoped scripts can't
+  use platform crypto APIs or `require()`, so this repo implements
+  SDK-HMAC-SHA256 (and OBS's own HMAC-SHA1 variant) in pure ES5 JS,
+  cross-verified against Node's `crypto` module and the official Huawei SDK.
+  Directly reusable for anyone wiring any AK/SK-signed API into ServiceNow.
+- **Every non-obvious decision is backed by a real error, not a guess** —
+  the docs keep the actual error messages, API responses, and platform
+  restrictions (like ServiceNow fencing `gs.sleep()` in custom scoped apps)
+  that drove each design choice, so the "why" survives, not just the "what."
+
+See
+[servicenow/event-management/README.md](servicenow/event-management/README.md)
+for the Event Management setup detail, or
+[servicenow/hc-connector/docs/RESOURCE-MATRIX.md](servicenow/hc-connector/docs/RESOURCE-MATRIX.md)
+for the full per-resource-type verification matrix.
 
 ## Why this exists
 
@@ -61,16 +79,17 @@ incoming alerts without a native connector doing it for you.
 │       ├── README.md                 # prerequisites, setup checklist, and the Event Rule creation path
 │       ├── lib/mapAlarmToEvent.js    # pure mapping logic, unit-tested
 │       └── fixtures/                 # mock Huawei Cloud Eye (CES) alarm payload
-│   └── hc-connector/                 # HC ITOM Connector productization (Phase 2A: ECS platform wiring, real-PDI verified - see its own README)
-│       ├── README.md                 # what's delivered vs. the Phase 2B-6 plan
-│       ├── docs/ARCHITECTURE.md      # target architecture across all 6 phases
-│       ├── docs/INSTALL.md           # install steps (automatable / manual-admin) through Phase 2A
-│       ├── docs/ACL-SETUP.md         # Studio table/role/ACL creation steps (Phase 2A)
-│       ├── docs/RESOURCE-MATRIX.md   # resource-type support matrix, phase-mapped
+│   └── hc-connector/                 # HC ITOM Connector productization (multi-account/region, 10 resource types, Day-2 ops - see its own README)
+│       ├── README.md                 # what's delivered vs. the roadmap
+│       ├── docs/ARCHITECTURE.md      # target architecture across all phases, with the full real-error-to-fix trail for each
+│       ├── docs/INSTALL.md           # install steps (automatable / manual-admin), all the way through Day-2 ops
+│       ├── docs/ACL-SETUP.md         # Studio table/role/ACL/custom-CI-class creation steps
+│       ├── docs/RESOURCE-MATRIX.md   # resource-type support matrix (Provisioning/Discovery/Events/Day-2 ops), phase-mapped
 │       ├── tables/*.schema.json      # HC Cloud Account/Region/Discovery Run/Resource Sync State/Event Ingestion Record/Connector Config
-│       ├── lib/                      # pure: credentialProvider, resourceLifecycle, eventEnvelope, discoveryRunTracker, syncStatePlanner
-│       ├── service-graph/HcConnectorEcsSync.js # multi-account/region ECS orchestrator (hand-written codegen template)
-│       ├── docs/generated/HcConnectorEcsSync.generated.js # paste-ready Script Include (codegen output)
+│       ├── lib/                      # pure: credentialProvider, resourceLifecycle, eventEnvelope, ecsLifecycleAction, discoveryRunTracker, syncStatePlanner
+│       ├── service-graph/            # multi-account/region orchestrators (one per resource type) + HcConnectorEcsLifecycleAction.js (Day-2 ops)
+│       ├── ui-actions/               # Start/Stop/Reboot Instance + Run Sync Now UI Actions (paste-ready)
+│       ├── docs/generated/           # paste-ready Script Includes (codegen output - inlines the lib/ modules above)
 │       └── scripts/                  # table doc/provisioning-script/build-script-include generators + check-mirror-drift.js (wired into `npm test` via pretest)
 ├── tests/
 │   ├── unit/                         # Jest tests against the lib/*.js pure logic
@@ -84,26 +103,49 @@ incoming alerts without a native connector doing it for you.
 
 ## Implementation status
 
-| Component | Implemented | Not yet implemented |
-|---|---|---|
-| Terraform module | ✅ `terraform/main.tf` — VPC/SG/ECS/EVS/EIP/ELB/RDS/OBS/Route Table/NAT Gateway/VPC Peering/CCE, **all real cloud resource types in the roadmap now verified against a real Huawei Cloud sandbox** (apply+destroy), validated with `terraform validate`/`tflint` in CI | Remote state backend, Day-2 ops beyond create/destroy, the GitHub Actions smoke-test workflow itself is still untriggered |
-| CPG Blueprint wiring | 📝 Documented manual steps (`servicenow/cpg/README.md`) | Not exported as an Update Set / one-click installer |
-| ECS Discovery | ✅ **Fully verified end-to-end against a real Huawei Cloud account + real ServiceNow PDI**, warning-free and idempotent on repeat runs — AK/SK-signed auth, real HTTP fetch, pagination, and IRE reconciliation all the way through to a real `cmdb_ci_vm_instance` CI + containment relationship, zero errors and zero warnings; **hardened** (pagination, retry/backoff); unit tested; alternate password/IAM-token design kept as a documented option | Other resource types (RDS — planned next); real VPC/Subnet, Security Group, EVS, and EIP discovery are now also real-PDI verified, see the productization row below |
-| Event Management | ✅ **Fully verified end-to-end against a real Huawei Cloud account and a real ServiceNow PDI**: Scripted REST webhook, severity mapping, and CI binding (Event Rule created via the Event Rule Designer wizard — requires the "Service Operations Workspace ITOM Apps" Store app) all confirmed producing a correctly severity-mapped, CI-bound alert; unit tested | HMAC/signature verification, broader metric coverage, incident auto-creation — see [servicenow/event-management/README.md](servicenow/event-management/README.md) |
-| Packaging | ✅ "Run Sync Now" UI Action + periodic scheduled sync, both real-PDI verified | 🚧 One-click install for an unrelated account: plan decided (Application Repository Mode), deferred until feature-complete — see `servicenow/hc-connector/docs/ARCHITECTURE.md` |
-| Automated integration tests | ❌ Manual plan only (`tests/atf/README.md`) | Needs a live ServiceNow dev instance + Huawei sandbox account wired into CI |
-| **HC ITOM Connector productization** | ✅ **Phase 2A + 2B (of 6), both real-PDI verified**, plus Security Group, EVS, and EIP Discovery from Phase 2C, plus ELB, RDS, OBS, and CCE cluster Discovery from Phase 3 — **Phase 3 is now complete**: multi-account/region ECS orchestrator (`HcConnectorEcsSync.js`, Phase 2A) — HC2/HC3/HC4 directly exercised, HC1/HC5 on lighter evidence; VPC + Subnet discovery (`HuaweiVpcDiscovery.js`/`HcConnectorVpcSync.js`, Phase 2B) — HC6–HC10 all directly exercised; Security Group and EIP discovery folded into the same VPC orchestrator, EVS/ELB/RDS/OBS/CCE discovery each via a sibling Script Include pair — all real-PDI verified end to end and idempotent on repeat runs. EIP's fix is the first working example in this project of relating CIs across two separate discovery runs — via a locally-built stub of ECS Discovery's own `cmdb_ci_virtualization_server` placeholder that IRE matches against the real, already-committed CI through identification, not a raw sys_id. OBS and CCE both needed a dedicated custom CI class (`x_2021019_huawei_0_huawei_cloud_obs_bucket`, `x_2021019_huawei_0_huawei_cloud_cce_cluster`) since no existing platform class was a genuine semantic fit — a dedicated class is the standard way to model a resource type with no clean generic fit; OBS is also the only resource type with its own signing scheme (HMAC-SHA1, a new pure-JS primitive) and an XML response. CCE is cluster-only by design — resources inside a cluster (node/namespace/workload/service/ingress/Pod) need a MID Server reaching the cluster's own Kubernetes API, a mechanism this project doesn't use anywhere else, and this is a real architectural boundary rather than a scope gap. Real codegen covers all seven orchestrators via one manifest-driven build script. Route Table/NAT Gateway/VPC Peering Discovery is deliberately NOT planned — they're routing config attached to a VPC/Subnet, not standalone discoverable assets under ServiceNow's CMDB CI Class Model; Terraform-only coverage is the intentional end state. See [servicenow/hc-connector/README.md](servicenow/hc-connector/README.md), [ARCHITECTURE.md](servicenow/hc-connector/docs/ARCHITECTURE.md) | Phase 4: opt-in Pod discovery, blocked on the same MID Server question as CCE's other in-cluster resources; Phases 5–6: a real event gateway, CPG/Terraform catalog + Day-2 ops |
-| **Setup automation & distribution packaging** (cross-cutting, new) | ✅ Native `HC Cloud Account`/`HC Cloud Region` table forms + a "Run Sync Now" UI Action (`servicenow/hc-connector/ui-actions/`) for one-click first sync, plus a periodic `scheduled-jobs/hc_connector_scheduled_sync.js` counterpart, **both real-PDI verified** | 🚧 One-click distribution for an unrelated ServiceNow account — Store publish needs ServiceNow Technology Partner Program (TPP) enrollment, not available to an individual developer instance; Local Update Set packaging doesn't work either (app scope isn't Update-Set-trackable); plan is Application Repository Mode once feature-complete — see `servicenow/hc-connector/docs/ARCHITECTURE.md` |
-| **Day-2 operations** (cross-cutting, new) | ✅ First slice **real-PDI verified**: ECS start/stop via `HcConnectorEcsLifecycleAction.js` + `cmdb_ci_vm_instance` UI Actions (reboot unit-tested, same code path, not separately exercised) — this project's first WRITE (not read-only) operation against the cloud account, reusing `HuaweiECSDiscovery`'s already-verified signing rather than duplicating it. Confirmed against a real sandbox instance both via the ServiceNow log and directly on the Huawei Cloud console. Now checks Huawei's async job-tracking endpoint (`GET /v1/{project_id}/jobs/{job_id}`) once, immediately after issuing an action, distinguishing SUCCESS/FAIL/a real in-progress status instead of trusting the initial `HTTP 200` alone — a first version used a `gs.sleep()`-based wait-and-poll loop and hit a real, confirmed ServiceNow platform restriction (custom scoped apps are fenced away from `gs.sleep()`); fixed to a single non-blocking check plus a standalone `checkJobStatus()` method for re-checking later. **Real-PDI verified end to end**: stop then start both confirmed via the real job reaching `SUCCESS` and independently on the Huawei Cloud console. The same latent `gs.sleep()` risk was also proactively fixed across all seven Discovery files' retry/backoff logic (never yet triggered by a real retryable HTTP status there, so not itself real-PDI verified, but the fencing behavior itself is now a confirmed platform fact, not a guess). Picked ahead of further resource-coverage phases after a capability-gap review found it and IAM Agency auth to be the two gaps that matter most. See `servicenow/hc-connector/docs/ARCHITECTURE.md`'s "Day-2 operations" section, `docs/INSTALL.md` Step 10 | resize/attach/detach; Flow Designer/IntegrationHub wrapping |
+Short version: **Provisioning, Discovery (10 resource types), Event
+Management, and a first Day-2 operations slice are all real-PDI verified.**
+Production-grade multi-account auth (IAM Agency) and one-click packaging
+are the two biggest open items. Full detail, including every real error
+that shaped a design decision, lives in
+[ARCHITECTURE.md](servicenow/hc-connector/docs/ARCHITECTURE.md) and
+[RESOURCE-MATRIX.md](servicenow/hc-connector/docs/RESOURCE-MATRIX.md) —
+this table stays intentionally short.
 
-**Phase 3 Discovery is now complete** (ELB/RDS/OBS/CCE cluster, see the
-productization row above). Route Table/NAT Gateway/VPC Peering Discovery
-is deliberately not planned — see the productization row above. Next up
-is Phase 4 (opt-in Pod discovery, blocked on a MID Server question) or
-Phase 5/6 (event gateway, Day-2 ops) - see
-[ARCHITECTURE.md](servicenow/hc-connector/docs/ARCHITECTURE.md)'s
-"Roadmap review" section for a few additional candidate resource types
-identified but not yet scoped into a phase.
+| Component | Status | Not yet |
+|---|---|---|
+| Terraform provisioning | ✅ 12 resource types (VPC/SG/ECS/EVS/EIP/ELB/RDS/OBS/Route Table/NAT Gateway/VPC Peering/CCE), all apply+destroy verified against a real sandbox | Remote state backend, Day-2 ops beyond create/destroy |
+| CMDB Discovery | ✅ 10 resource types, multi-account/region, idempotent, real-PDI verified — see the productization row below | Pod/node/namespace-level Kubernetes visibility (needs a MID Server, see below) |
+| Event Management | ✅ Webhook → Event Rule → severity-mapped, CI-bound alert, real-PDI verified | HMAC/signature verification, broader metric coverage, incident auto-creation |
+| Day-2 operations | ✅ ECS start/stop/reboot with real async job-status tracking, real-PDI verified end to end (see below) | resize/attach/detach; Flow Designer/IntegrationHub wrapping for Change/Request workflows |
+| Setup automation | ✅ Native table forms + a "Run Sync Now" UI Action + periodic scheduled sync, real-PDI verified | — |
+| Multi-account auth | 🚧 AK/SK (dev/compat mode) real-PDI verified; production-grade IAM Agency is an interface stub | Needs a real multi-account Huawei Organizations setup to build/verify against |
+| Packaging / distribution | 🚧 Manual install only (`docs/INSTALL.md`) | One-click install: Store publish needs TPP enrollment (blocked), Update Set doesn't capture app scope (proven not viable); plan is Application Repository Mode once feature-complete |
+| Automated integration tests | ❌ Manual ATF plan only (`tests/atf/README.md`) | Needs a live ServiceNow dev instance + Huawei sandbox wired into CI |
+
+**CMDB Discovery detail**: multi-account/region orchestrators for
+ECS/VPC/Subnet/Security Group/EVS/EIP/ELB/RDS/OBS/CCE cluster, all
+real-PDI verified and idempotent on repeat runs. Two resource types
+(OBS, CCE) needed a dedicated custom CI class since no existing platform
+class was a genuine semantic fit; EIP's fix is this project's first
+working example of relating CIs discovered across two separate runs.
+Route Table/NAT Gateway/VPC Peering are Terraform-only by design — no
+standalone CI class exists for routing config under ServiceNow's CMDB CI
+Class Model, confirmed via research, not assumed. CCE is cluster-only —
+anything *inside* a cluster needs a MID Server reaching the cluster's own
+Kubernetes API, a real architectural boundary covered in ARCHITECTURE.md's
+"Phase 4" section (direction decided, not yet deployed).
+
+**Day-2 operations detail**: this project's first WRITE (not read-only)
+operation against the cloud account. Checks Huawei's async job-tracking
+endpoint after issuing an action instead of trusting the initial `HTTP
+200` alone, so a request that's accepted-but-meaningless (e.g. against an
+already-deleted instance) doesn't look identical to a real success. Found
+and fixed two real ServiceNow platform issues along the way — including a
+scoped-app restriction on `gs.sleep()` that also applied to every
+Discovery file's retry logic, fixed proactively across all seven once
+confirmed. See ARCHITECTURE.md's "Day-2 operations" section for the full
+error-to-fix trail.
 
 ## Quick start
 
@@ -120,7 +162,7 @@ git clone <this-repo>
 cd huaweicloud-servicenow-itom-connector
 
 npm install
-npm test                              # 233 tests: pure mapping/resilience/signing/crypto math, full control-flow integration tests, and HC ITOM Connector Phase 1/2A/2B logic
+npm test                              # 312 tests: pure mapping/resilience/signing/crypto math, full control-flow integration tests, and HC ITOM Connector logic across every resource type + Day-2 ops
 
 cd terraform
 terraform init -backend=false
@@ -136,6 +178,13 @@ first error, not a bug in the module.
 1. **Provisioning** — follow [`servicenow/cpg/README.md`](servicenow/cpg/README.md) to register the Terraform module as a CPG IaC Blueprint.
 2. **Discovery** — create a scoped app, paste in [`servicenow/discovery/HuaweiECSDiscovery.js`](servicenow/discovery/HuaweiECSDiscovery.js) as a Script Include, set the `x_hwc.itom.*` system properties, store IAM creds in a Credential record, and schedule `run()`.
 3. **Event Management** — create the Scripted REST resource from [`webhook-scripted-rest.js`](servicenow/event-management/webhook-scripted-rest.js) via Studio's wizard (not a raw `GlideRecord` insert — see the setup checklist in `servicenow/event-management/README.md`), set `x_hwc.itom.webhook_secret`, point a Huawei Cloud Eye → SMN subscription at the webhook URL, and create the Event Rule through the Event Rule Designer wizard using the exact field values in [`event-rule-designer-config.md`](servicenow/event-management/event-rule-designer-config.md) (requires the ServiceNow Store app "Service Operations Workspace ITOM Apps" — see that doc for why).
+
+The steps above wire up the original single-account reference build. For
+**multi-account/region Discovery across all 10 resource types, plus Day-2
+operations (start/stop/reboot)**, follow
+[`servicenow/hc-connector/docs/INSTALL.md`](servicenow/hc-connector/docs/INSTALL.md)
+instead — it supersedes steps 2-3 above with the productized version,
+building on the same tables/lib/ modules.
 
 ## Testing & Validation
 
