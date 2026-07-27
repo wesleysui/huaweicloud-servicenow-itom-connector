@@ -8,6 +8,17 @@
  * credentials, signs, and issues the HTTP call) so this piece stays
  * Node-testable with zero ServiceNow dependency, matching every other
  * lib/*.js module in this project.
+ *
+ * Real-PDI confirmed: the batch action endpoint returns HTTP 200 with
+ * {"job_id": "<uuid>"} (not an empty body as first assumed), pointing at
+ * Huawei's own async job-tracking endpoint,
+ * GET /v1/{project_id}/jobs/{job_id}, whose `status` field is one of
+ * INIT/RUNNING/SUCCESS/FAIL (Nova-compatible job status values).
+ * HcConnectorEcsLifecycleAction.performAction() checks this endpoint once,
+ * immediately after issuing the action - NOT in a wait-and-poll loop, since
+ * a real-PDI test found gs.sleep() is fenced (blocked) for custom scoped
+ * apps on this instance, ruling out a blocking multi-attempt loop inside
+ * one transaction. See that file's header comment for the full story.
  */
 
 var VALID_ACTIONS = ['start', 'stop', 'reboot'];

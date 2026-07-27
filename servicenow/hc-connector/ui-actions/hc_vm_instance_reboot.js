@@ -19,9 +19,16 @@
 
 (function executeRule(current, previous /*null when async*/) {
     try {
-        new HcConnectorEcsLifecycleAction().performAction(current.getUniqueValue(), 'reboot');
-        gs.addInfoMessage('Reboot requested for ' + current.getValue('name') +
-            '. Huawei Cloud processes this asynchronously - refresh in a minute to see the updated status.');
+        var result = new HcConnectorEcsLifecycleAction().performAction(current.getUniqueValue(), 'reboot');
+        if (result.jobStatus === 'SUCCESS') {
+            gs.addInfoMessage('Reboot succeeded for ' + current.getValue('name') + ' (job ' + result.jobId + ').');
+        } else if (result.jobId) {
+            gs.addInfoMessage('Reboot requested for ' + current.getValue('name') + ' - job ' + result.jobId +
+                ' status: ' + result.jobStatus + '. Not yet confirmed complete - check back shortly.');
+        } else {
+            gs.addInfoMessage('Reboot requested for ' + current.getValue('name') +
+                '. Huawei Cloud processes this asynchronously - refresh in a minute to see the updated status.');
+        }
     } catch (ex) {
         gs.addErrorMessage('Reboot failed: ' + ex.message);
     }

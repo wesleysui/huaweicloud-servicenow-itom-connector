@@ -241,7 +241,19 @@ just "no error thrown" — a first attempt against a since-deleted instance
 produced a misleading HTTP 200 with no useful log detail, fixed by logging
 the response body on the success path too, then re-verified against a
 freshly provisioned instance). Huawei's batch action API returns `HTTP
-200` with `{"job_id": "..."}`, not an empty body as originally assumed.
+200` with `{"job_id": "..."}`, not an empty body as originally assumed —
+`performAction()` now checks `GET /v1/{project_id}/jobs/{job_id}` once,
+immediately after issuing an action, returning `jobStatus` as `'SUCCESS'`
+or a real in-progress value, instead of trusting the initial 200 alone. A
+first version used a `gs.sleep()`-based wait-and-poll loop and hit a real,
+confirmed ServiceNow platform restriction — custom scoped apps are fenced
+away from `gs.sleep()` (`MethodNotAllowedException`) — fixed to a single
+non-blocking check plus a standalone `checkJobStatus(ciSysId, jobId)`
+method for re-checking later. **Real-PDI verified end to end**: stop then
+start both confirmed via the real job reaching `SUCCESS` (`checkJobStatus()`)
+and independently on the Huawei Cloud console. The same latent `gs.sleep()`
+risk was also proactively fixed across all seven Discovery files' retry/
+backoff logic.
 
 ## What Phase 1 delivers (the scaffold Phase 2A builds on)
 

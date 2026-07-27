@@ -183,10 +183,38 @@ automatic counterpart.
 Adds Start/Stop/Reboot buttons to the ECS instance CI form. This is this
 project's first WRITE operation against the cloud account (everything
 above only reads) — see `docs/ARCHITECTURE.md`'s "Day-2 operations"
-section for the full design. **Real-PDI verified** (start/stop, against a
-real sandbox instance, confirmed on the Huawei Cloud console directly, not
-just "no ServiceNow error") — reboot shares the same code path and is
-unit-tested but wasn't separately real-PDI exercised.
+section for the full design. **Action-issuing path real-PDI verified**
+(start/stop, against a real sandbox instance, confirmed on the Huawei
+Cloud console directly, not just "no ServiceNow error") — reboot shares
+the same code path and is unit-tested but wasn't separately real-PDI
+exercised. **Job-status checking is also real-PDI verified** — added
+after the first verification pass found Huawei's API returns
+`{"job_id": "..."}`, not an empty body; `performAction()` checks
+`GET /v1/{project_id}/jobs/{job_id}` once, immediately after issuing the
+action, and distinguishes SUCCESS/FAIL/a real in-progress status instead
+of trusting the initial `HTTP 200` alone — **real-PDI verified end to
+end**: both stop and start showed the real in-progress status on click,
+then a follow-up `checkJobStatus()` call confirmed each job reached
+`SUCCESS`, independently confirmed on the Huawei Cloud console too. **Not
+a wait-and-poll loop** — a first attempt at that used `gs.sleep()` between
+attempts and failed real-PDI with
+`com.glide.script.fencing.MethodNotAllowedException: Function sleep is not
+allowed in scope x_2021019_huawei_0` (a genuine
+platform restriction on custom scoped apps, confirmed, not a guess) — see
+`docs/ARCHITECTURE.md` for the full story. The same latent risk was found
+in every Discovery file's retry/backoff logic too and proactively fixed
+there as well (`HuaweiECSDiscovery.js` and siblings) - if you already
+deployed any of those Script Includes, redeploy them (re-paste the current
+file contents) to pick up the fix, though none of them has ever actually
+hit a real retryable HTTP status in this project's testing, so this isn't
+urgent the way the `HcConnectorEcsLifecycleAction` fix was. If you already
+deployed `HcConnectorEcsLifecycleAction` before this fix, **redeploy it**
+(step 2 below) to pick it up - and redeploy **all three UI Actions too**
+(step 3), not just the Script Include: their message-branching logic
+changed in the same pass, and a real-PDI test found that redeploying only
+the Script Include left the UI Actions showing a stale generic message
+even though the Script Include's own logic (and logs) were already
+correct - an easy step to miss.
 
 Requires Step 5 (ECS sync already deployed, so `HC Resource Sync State`
 rows exist to resolve a CI's account/region) and the `HuaweiECSDiscovery`
@@ -238,6 +266,19 @@ method is reused directly, not duplicated).
    just on failure, specifically so this kind of "accepted but meaningless"
    response is visible in `gs.info`/`gs.error` logs prefixed
    `[HcConnectorEcsLifecycleAction]`.
+6. **Verify job-status checking**: click **Stop Instance** again (redeploy
+   step 2's updated Script Include first — the one with the fix for the
+   `gs.sleep()` fencing error). The info message should now say either
+   "Stop succeeded ... (job ...)" (Huawei's job already finished by the
+   time the single check ran) or "Stop requested ... status: RUNNING/INIT
+   ..." (job still in progress, a real status word, not a generic
+   placeholder). Check the log for a `job ... status check: HTTP ...` line
+   to see exactly what was returned. If it's still running, confirm you
+   can check again later from Background Scripts:
+   ```javascript
+   new HcConnectorEcsLifecycleAction().checkJobStatus('<ciSysId>', '<jobId>');
+   ```
+   (both values are in the info message / log from step 6's first click).
 
 ## `servicenow/discovery/HuaweiECSDiscovery.js` still works standalone
 

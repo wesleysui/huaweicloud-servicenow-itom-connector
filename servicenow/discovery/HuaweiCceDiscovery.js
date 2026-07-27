@@ -20,10 +20,13 @@
 // HuaweiObsDiscovery.js's header comment for the one real exception).
 // _sign/_formatSdkDate/_canonicalURI/_canonicalQueryString/_percentEncode/
 // _hexByte/_sha256Hex/_hmacSha256Hex/SHA256_K/_rotr/_sha256Bytes/
-// _hmacSha256Bytes/_utf8Bytes/_bytesToHex/_shouldRetry/_computeBackoffMs/
-// _getCredential below are copied byte-for-byte from HuaweiECSDiscovery.js
-// (same "don't touch proven crypto, duplicate and drift-check instead"
-// precedent) - covered by check-mirror-drift.js's eighth PAIRS entry.
+// _hmacSha256Bytes/_utf8Bytes/_bytesToHex/_shouldRetry/_getCredential below
+// are copied byte-for-byte from HuaweiECSDiscovery.js (same "don't touch
+// proven crypto, duplicate and drift-check instead" precedent) - covered
+// by check-mirror-drift.js's eighth PAIRS entry. _computeBackoffMs was
+// removed - gs.sleep() is fenced for custom scoped apps on this instance,
+// so backoff delay isn't usable here; retries now happen immediately
+// instead.
 //
 // Response shape is Kubernetes-shaped (`kind`/`apiVersion`/`items[]`,
 // each item nested under `metadata`/`spec`/`status`), NOT a flat object
@@ -109,8 +112,15 @@ HuaweiCceDiscovery.prototype = {
                 }
 
                 if (this._shouldRetry(status, attempt)) {
-                    gs.warn('[HuaweiCceDiscovery] fetch got ' + status + ', retrying (attempt ' + attempt + ')');
-                    gs.sleep(this._computeBackoffMs(attempt));
+                    // Retries immediately, no backoff delay - gs.sleep() is
+                    // fenced (blocked) for custom scoped apps on this
+                    // instance, confirmed via a real MethodNotAllowedException
+                    // in HcConnectorEcsLifecycleAction.js. This retry path has
+                    // never actually been real-PDI exercised (no real
+                    // 429/500/502/503/504 has ever been hit here), so this
+                    // fix is proactive, not itself confirmed against a real
+                    // retryable error.
+                    gs.warn('[HuaweiCceDiscovery] fetch got ' + status + ', retrying immediately (no backoff, attempt ' + attempt + ')');
                     continue;
                 }
 
@@ -397,14 +407,6 @@ HuaweiCceDiscovery.prototype = {
     // ------------------------------------------------------------------
     _shouldRetry: function(status, attempt) {
         return this.retryableStatus.indexOf(status) !== -1 && attempt < this.maxRetries;
-    },
-
-    _computeBackoffMs: function(attempt, baseMs, maxMs) {
-        baseMs = baseMs || 500;
-        maxMs = maxMs || 8000;
-        var exponential = Math.min(maxMs, baseMs * Math.pow(2, attempt));
-        var jitterRange = exponential * 0.2;
-        return Math.round(exponential - jitterRange / 2 + Math.random() * jitterRange);
     },
 
     // ------------------------------------------------------------------

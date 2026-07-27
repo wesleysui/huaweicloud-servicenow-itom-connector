@@ -76,10 +76,10 @@ var PAIRS = [
     pattern: /0x[0-9a-fA-F]{8}/g
   },
   {
-    label: 'ECS lifecycle action-type tokens: ecsLifecycleAction.js -> HcConnectorEcsLifecycleAction.js',
+    label: 'ECS lifecycle action-type/job-status tokens: ecsLifecycleAction.js -> HcConnectorEcsLifecycleAction.js',
     libFile: 'servicenow/hc-connector/lib/ecsLifecycleAction.js',
     mirrorFile: 'servicenow/hc-connector/service-graph/HcConnectorEcsLifecycleAction.js',
-    pattern: /os-start|os-stop|reboot|SOFT|HARD/g
+    pattern: /os-start|os-stop|reboot|SOFT|HARD|SUCCESS|FAIL/g
   }
 ];
 

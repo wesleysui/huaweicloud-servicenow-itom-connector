@@ -39,11 +39,30 @@
 // scripts cannot require() - keep both in sync, covered by
 // check-mirror-drift.js's ninth PAIRS entry).
 //
-// Response shape NOT yet real-PDI confirmed - Huawei's docs describe this
-// as an async operation typically returning 200/202 with an empty body;
-// this file treats any 2xx as success and logs the raw body, correcting on
-// the first real error per this project's standing "let the real error
-// decide" discipline.
+// Response shape real-PDI confirmed: HTTP 200 with {"job_id": "<uuid>"} -
+// not an empty body as first assumed. performAction() checks Huawei's own
+// async job-tracking endpoint (GET /v1/{project_id}/jobs/{job_id}) once,
+// immediately after issuing the action, so the return value distinguishes
+// "the job already succeeded" from "the job is still running" from "the
+// job failed" - a real gap found via real-PDI testing: a first stop
+// attempt against a since-deleted instance produced an HTTP 200 that meant
+// nothing, and without checking the job there was no way to tell that
+// apart from a real success.
+//
+// ONE immediate check, not a multi-attempt wait-and-poll loop: a real-PDI
+// test of an earlier version (looping with gs.sleep() between attempts)
+// failed with `com.glide.script.fencing.MethodNotAllowedException:
+// Function sleep is not allowed in scope x_2021019_huawei_0` - gs.sleep()
+// is fenced (blocked) for custom scoped apps on this instance, a genuine
+// platform restriction, not a bug to work around by trying harder. The
+// practical alternative: check once without blocking, and expose
+// checkJobStatus(ciSysId, jobId) as a standalone public method so the
+// caller (or a follow-up Background Script) can check again later if the
+// first check finds the job still running. See docs/ARCHITECTURE.md's
+// "Day-2 operations" section for the fuller writeup, including the same
+// latent risk in every Discovery file's gs.sleep()-based retry/backoff
+// (never yet triggered by a real retryable HTTP status, so never
+// real-PDI-exercised either - flagged, not fixed preemptively here).
 
 // __HC_CONNECTOR_INLINED_LIB__
 
@@ -72,7 +91,17 @@ HcConnectorEcsLifecycleAction.prototype = {
     // @param ciSysId - cmdb_ci_vm_instance sys_id
     // @param action - 'start'|'stop'|'reboot'
     // @param opts - { hard: boolean } - hard=true requests HARD (power-cycle) instead of SOFT (graceful)
-    // @returns {{status: number, body: string}}
+    // @returns {{status: number, body: string, jobId: string|null, jobStatus: string|null}}
+    //   jobStatus is null when the response had no job_id to check (defensive
+    //   fallback for the originally-assumed empty-body shape, in case a
+    //   future action type doesn't return one); otherwise it's whatever
+    //   Huawei's job endpoint reported at the single check point performed
+    //   here - 'SUCCESS' if the job had already finished, or a real
+    //   in-progress value (e.g. 'RUNNING'/'INIT') if not, in which case call
+    //   checkJobStatus(ciSysId, jobId) again later rather than assuming
+    //   either outcome. A job already reporting FAIL at this check point
+    //   throws rather than returning, same as an HTTP error - both mean "the
+    //   caller's requested action did not happen."
     performAction: function(ciSysId, action, opts) {
         var ctx = this._resolveContext(ciSysId);
         if (!ctx) {
@@ -119,7 +148,106 @@ HcConnectorEcsLifecycleAction.prototype = {
 
         gs.info('[HcConnectorEcsLifecycleAction] ' + action + ' issued for CI ' + ciSysId +
             ' (server ' + ctx.nativeKey + '): HTTP ' + status + ' - ' + responseBody);
-        return { status: status, body: responseBody };
+
+        var jobId = this._extractJobId(responseBody);
+        if (!jobId) {
+            return { status: status, body: responseBody, jobId: null, jobStatus: null };
+        }
+
+        var jobResult = this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        if (jobResult && jobResult.status === 'FAIL') {
+            gs.error('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' FAILED for CI ' + ciSysId +
+                ': ' + JSON.stringify(jobResult));
+            throw new Error('ECS ' + action + ' action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+        }
+        if (jobResult && jobResult.status === 'SUCCESS') {
+            gs.info('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
+        }
+
+        var observedStatus = jobResult ? jobResult.status : 'UNKNOWN';
+        gs.info('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' for CI ' + ciSysId +
+            ' not yet terminal at first check (status=' + observedStatus + ') - not treated as an error, call ' +
+            'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        return { status: status, body: responseBody, jobId: jobId, jobStatus: observedStatus };
+    },
+
+    // ------------------------------------------------------------------
+    // Public: check a previously-issued job's current status again, e.g.
+    // from a Background Script, since performAction() only checks once
+    // (see this file's header comment for why - gs.sleep() is fenced in
+    // this scope, so a wait-and-poll loop isn't viable inside the same
+    // transaction).
+    // @param ciSysId - the same CI passed to performAction()
+    // @param jobId - from performAction()'s returned {jobId}
+    // @returns the parsed job status body, or null if the check itself failed
+    // ------------------------------------------------------------------
+    checkJobStatus: function(ciSysId, jobId) {
+        var ctx = this._resolveContext(ciSysId);
+        if (!ctx) {
+            throw new Error('CI ' + ciSysId + ' has no active HC Resource Sync State row for resource_type=ecs - not managed by this connector');
+        }
+
+        var provider = createCredentialProvider(ctx.account.auth_mode, {
+            propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
+            accountId: ctx.account.account_id
+        });
+        var credentials = provider.getCredentials();
+
+        var disco = new HuaweiECSDiscovery({
+            region: ctx.region.region,
+            projectId: ctx.region.project_id,
+            accessKey: credentials.accessKey,
+            secretKey: credentials.secretKey
+        });
+
+        var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
+        return this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+    },
+
+    // ------------------------------------------------------------------
+    // Single, non-blocking job-status check - Huawei's async job-tracking
+    // endpoint, same host as the action itself. No loop, no gs.sleep()
+    // (fenced in this scope - see this file's header comment). Returns the
+    // parsed job body (whatever status it currently reports, terminal or
+    // not), or null if the HTTP call itself failed.
+    // ------------------------------------------------------------------
+    _fetchJobStatus: function(disco, host, projectId, jobId) {
+        var pathname = '/v1/' + projectId + '/jobs/' + jobId;
+        try {
+            var signed = disco._sign({ method: 'GET', pathname: pathname, host: host });
+
+            var request = new sn_ws.RESTMessageV2();
+            request.setHttpMethod('GET');
+            request.setEndpoint('https://' + host + pathname);
+            request.setRequestHeader('Content-Type', signed['Content-Type']);
+            request.setRequestHeader('X-Sdk-Date', signed['X-Sdk-Date']);
+            request.setRequestHeader('Authorization', signed['Authorization']);
+            request.setRequestHeader('host', host);
+
+            var response = request.execute();
+            var status = response.getStatusCode();
+            var body = response.getBody();
+
+            gs.info('[HcConnectorEcsLifecycleAction] job ' + jobId + ' status check: HTTP ' + status + ' - ' + body);
+
+            if (status == 200) return JSON.parse(body);
+            gs.warn('[HcConnectorEcsLifecycleAction] job ' + jobId + ' status check got HTTP ' + status);
+            return null;
+        } catch (ex) {
+            gs.warn('[HcConnectorEcsLifecycleAction] job ' + jobId + ' status check exception: ' + ex.message);
+            return null;
+        }
+    },
+
+    _extractJobId: function(responseBody) {
+        try {
+            var parsed = JSON.parse(responseBody);
+            return (parsed && parsed.job_id) || null;
+        } catch (ex) {
+            return null;
+        }
     },
 
     // ------------------------------------------------------------------

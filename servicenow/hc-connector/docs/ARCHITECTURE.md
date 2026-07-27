@@ -818,15 +818,76 @@ real issues were found and fixed along the way, both instructive:
    ability to distinguish "accepted" from "meaningful," logged here rather
    than silently worked around.
 
-**Huawei's real response shape, now confirmed**: both `os-stop` and
-`os-start` returned `HTTP 200` with body `{"job_id": "<uuid>"}` - not the
-empty body this code originally assumed. The job_id is real and points at
-Huawei's own async job-tracking API (`GET /v1/{project_id}/jobs/{job_id}`,
-not yet called from this code) - a genuine future improvement (poll the
-job instead of trusting the 200 alone) logged here, not built yet, since
-this slice's real-PDI bar was "the action actually happens on the real
-resource," which is now independently confirmed via the Huawei Cloud
-console for both stop and start, not just this job_id.
+**Huawei's real response shape, confirmed**: both `os-stop` and `os-start`
+returned `HTTP 200` with body `{"job_id": "<uuid>"}` - not the empty body
+this code originally assumed. `performAction()` now checks Huawei's async
+job-tracking endpoint (`GET /v1/{project_id}/jobs/{job_id}`) once,
+immediately after issuing the action, and returns `jobStatus: 'SUCCESS'`
+(job already finished) / a real in-progress value like `'RUNNING'`/`'INIT'`
+(not yet finished) / `null` (no job_id in the response, a defensive
+fallback for the originally-assumed empty-body shape) instead of only
+trusting the initial 2xx. A job already reporting `FAIL` at that check
+throws, same as an HTTP error - both mean "the requested action did not
+happen." This directly closes the gap the stale-CI false positive above
+exposed: a stop against a nonexistent server now either surfaces a real
+`FAIL` immediately, or an honest non-terminal status instead of a bare
+"requested" message indistinguishable from a real success.
+
+**Second real-PDI attempt found a second real bug: `gs.sleep()` is fenced
+in this scope.** The first version of job checking was a multi-attempt
+wait-and-poll loop (5 attempts, 2s apart, using `gs.sleep()` between
+attempts) - a real-PDI test of it failed immediately with
+`com.glide.script.fencing.MethodNotAllowedException: Function sleep is not
+allowed in scope x_2021019_huawei_0`. This is a genuine ServiceNow platform
+restriction (custom scoped apps are fenced away from `gs.sleep()`, likely
+to stop a runaway loop from blocking a platform execution thread), not a
+bug to route around by retrying harder. Fixed by dropping the loop
+entirely: `performAction()` now does exactly ONE non-blocking job-status
+check, and a new public `checkJobStatus(ciSysId, jobId)` method lets the
+caller (or a follow-up Background Script) check again later if the first
+check found the job still running. `JOB_POLL_MAX_ATTEMPTS`/
+`JOB_POLL_INTERVAL_MS` and the now-dead `isTerminalJobStatus()` pure-lib
+helper were removed rather than left unused.
+
+**The same latent risk existed in every Discovery file's retry/backoff
+logic** (`HuaweiECSDiscovery.js`/`HuaweiVpcDiscovery.js`/
+`HuaweiEvsDiscovery.js`/`HuaweiElbDiscovery.js`/`HuaweiRdsDiscovery.js`/
+`HuaweiObsDiscovery.js`/`HuaweiCceDiscovery.js` all called `gs.sleep()` in
+their `_shouldRetry`/backoff path on a retryable HTTP status). None of
+these had ever actually hit a real 429/500/502/503/504 in this project's
+real-PDI testing, so this exact fencing exception had never been triggered
+there - but if one ever had, retry would itself have crashed instead of
+retrying. **Fixed proactively across all seven**, a deliberate exception to
+this project's usual "frozen file, don't touch without a real trigger"
+convention - not a guess about whether the fencing applies (the exception
+message is explicit: `MethodNotAllowedException: Function sleep is not
+allowed in scope x_2021019_huawei_0`, a property of the scope, not of any
+one Script Include), so leaving the other seven unfixed would just be
+deferring an already-confirmed bug. Each file's retry loop now retries
+immediately (no backoff delay - the only option once `gs.sleep()` is off
+the table); the now-dead `_computeBackoffMs` method was removed from each
+file rather than left unused, and each file's header comment updated to
+stop listing it among the byte-for-byte-copied helpers. This is a
+proactive fix, not itself real-PDI verified against an actual retryable
+HTTP status in any of the seven (none has ever occurred) - `npm test` +
+`check-mirror-drift.js` (all 9 pairs, including the SHA-256/SHA-1 hex
+constants each of these files still mirrors) both pass, confirming the
+edits didn't disturb the untouched crypto/pagination logic around them.
+
+**Real-PDI verified end to end**, including the fix: after redeploying
+both the Script Include and all three UI Actions (the UI Actions needed a
+separate redeploy - an easy step to miss, since only the Script Include
+had actually changed in the fencing fix, but the UI Actions' own message
+branching had changed too, in an earlier edit that hadn't been redeployed
+yet, which produced a confusing intermediate result where the Script
+Include's log showed correct RUNNING-status handling while the on-screen
+message still showed the old generic text), a real stop then start against
+the live sandbox instance both showed the real in-progress status
+(`... status: RUNNING. Not yet confirmed complete - check back shortly.`),
+and a follow-up `checkJobStatus()` call confirmed each job reached
+`SUCCESS` (~15-20s of real wall-clock time from `begin_time` to
+`end_time`). Both outcomes were independently confirmed on the Huawei
+Cloud console directly, not just from the job status alone.
 
 Also not yet tested: the real error shape when calling `stop` on an
 already-stopped instance (or `start` on an already-running one) - Huawei's

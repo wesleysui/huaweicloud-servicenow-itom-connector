@@ -22,9 +22,16 @@
 
 (function executeRule(current, previous /*null when async*/) {
     try {
-        new HcConnectorEcsLifecycleAction().performAction(current.getUniqueValue(), 'stop');
-        gs.addInfoMessage('Stop requested for ' + current.getValue('name') +
-            '. Huawei Cloud processes this asynchronously - refresh in a minute to see the updated status.');
+        var result = new HcConnectorEcsLifecycleAction().performAction(current.getUniqueValue(), 'stop');
+        if (result.jobStatus === 'SUCCESS') {
+            gs.addInfoMessage('Stop succeeded for ' + current.getValue('name') + ' (job ' + result.jobId + ').');
+        } else if (result.jobId) {
+            gs.addInfoMessage('Stop requested for ' + current.getValue('name') + ' - job ' + result.jobId +
+                ' status: ' + result.jobStatus + '. Not yet confirmed complete - check back shortly.');
+        } else {
+            gs.addInfoMessage('Stop requested for ' + current.getValue('name') +
+                '. Huawei Cloud processes this asynchronously - refresh in a minute to see the updated status.');
+        }
     } catch (ex) {
         gs.addErrorMessage('Stop failed: ' + ex.message);
     }
