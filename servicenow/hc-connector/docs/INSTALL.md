@@ -178,6 +178,67 @@ automatic counterpart.
    rather than waiting for the schedule. Confirm `HC Discovery Run` shows
    new successful runs the same way Step 8 did.
 
+## Step 10 — Add Day-2 lifecycle operations: start/stop/reboot (🧑‍💻 manual admin config, optional)
+
+Adds Start/Stop/Reboot buttons to the ECS instance CI form. This is this
+project's first WRITE operation against the cloud account (everything
+above only reads) — see `docs/ARCHITECTURE.md`'s "Day-2 operations"
+section for the full design. **Real-PDI verified** (start/stop, against a
+real sandbox instance, confirmed on the Huawei Cloud console directly, not
+just "no ServiceNow error") — reboot shares the same code path and is
+unit-tested but wasn't separately real-PDI exercised.
+
+Requires Step 5 (ECS sync already deployed, so `HC Resource Sync State`
+rows exist to resolve a CI's account/region) and the `HuaweiECSDiscovery`
+Script Include from Step 5's prerequisites already present (its `_sign()`
+method is reused directly, not duplicated).
+
+1. Regenerate to be sure you have the latest build:
+   ```bash
+   node servicenow/hc-connector/scripts/build-script-include.js
+   ```
+2. In Studio, create a new Script Include named `HcConnectorEcsLifecycleAction`.
+   Paste the **entire contents** of
+   `docs/generated/HcConnectorEcsLifecycleAction.generated.js` — not
+   `service-graph/HcConnectorEcsLifecycleAction.js` (that's the
+   hand-written template with an unresolved `__HC_CONNECTOR_INLINED_LIB__`
+   marker, same pattern as `HcConnectorEcsSync`/`HcConnectorVpcSync`; a
+   real-PDI test with the un-generated template pasted directly failed with
+   `"createCredentialProvider" is not defined"` — that bare function only
+   becomes visible within whichever one file it's physically inlined into).
+3. Create three UI Actions on `cmdb_ci_vm_instance` (Virtual Machine
+   Instance), one per file below. For each:
+   - **Show insert**: unchecked; **Show update**: checked; **Form
+     button**: checked; **Client**: unchecked (server-side only)
+   - **Condition**: `new HcConnectorEcsLifecycleAction().isManaged(current.getUniqueValue())`
+     — hides the button on any `cmdb_ci_vm_instance` not discovered by
+     this connector (a shared platform table)
+
+   | Name | Action name | Script |
+   |---|---|---|
+   | Start Instance | `hc_ecs_start_instance` | `ui-actions/hc_vm_instance_start.js` |
+   | Stop Instance | `hc_ecs_stop_instance` | `ui-actions/hc_vm_instance_stop.js` |
+   | Reboot Instance | `hc_ecs_reboot_instance` | `ui-actions/hc_vm_instance_reboot.js` |
+
+4. Open a real ECS instance CI discovered by this connector (Step 5/6
+   already ran). Confirm all three buttons appear. Click **Stop Instance**,
+   confirm the info message appears with no error, then check the Huawei
+   Cloud console directly (not just the CMDB) that the instance actually
+   stopped — this is the first feature in this project where "no error
+   from ServiceNow" and "the cloud actually did the thing" are two
+   genuinely separate facts to verify, since the API call is fire-and-
+   forget async. Click **Start Instance** to bring it back, confirm the
+   same way.
+5. **Confirmed real response shape**: both actions return `HTTP 200` with
+   body `{"job_id": "<uuid>"}` — not an empty body. A stale CI (the
+   underlying instance already deleted, undetected by `HC Resource Sync
+   State` because the retirement threshold hadn't been crossed yet)
+   produced a misleading `HTTP 200` with no useful log detail on a first
+   attempt — the response body is now logged on the success path too, not
+   just on failure, specifically so this kind of "accepted but meaningless"
+   response is visible in `gs.info`/`gs.error` logs prefixed
+   `[HcConnectorEcsLifecycleAction]`.
+
 ## `servicenow/discovery/HuaweiECSDiscovery.js` still works standalone
 
 If you don't need multi-account/region support, `new
@@ -193,7 +254,7 @@ npm test                                                            # all suites
 node servicenow/hc-connector/scripts/generate-table-docs.js         # regenerates docs/generated/tables/*.md
 node servicenow/hc-connector/scripts/generate-provision-script.js   # regenerates docs/generated/provision-hc-connector-tables.js
 node servicenow/hc-connector/scripts/build-script-include.js        # regenerates HcConnectorEcsSync/VpcSync.generated.js
-node servicenow/hc-connector/scripts/check-mirror-drift.js          # must report "No drift detected" across all 3 mirrored pairs
+node servicenow/hc-connector/scripts/check-mirror-drift.js          # must report "No drift detected" across all mirrored pairs
 ```
 
 ## Upgrading from here

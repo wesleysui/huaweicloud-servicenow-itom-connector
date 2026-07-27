@@ -736,6 +736,110 @@ native-form-based post-install configuration).
     repository (`huaweicloud-servicenow-itom-connector-app`, currently
     private) already exists; the conversion itself is deferred.
 
+## Day-2 operations (Phase 6, first slice: ECS start/stop/reboot)
+
+Cross-referencing this project's own coverage against a mainstream cloud
+connector's capability set (see the "Roadmap review" section above)
+surfaced two real gaps that widen more than any remaining resource-type
+addition would: production multi-account auth (`AgencyCredentialProvider`,
+blocked on a real Organizations account) and Day-2 operations - the
+ability to act on a resource from ServiceNow, not just observe it. Day-2
+was picked first: unlike IAM Agency, it needs no new account/infrastructure
+to build and real-PDI verify, since it operates against the same sandbox
+ECS instance already discovered.
+
+**Design.** `lib/ecsLifecycleAction.js` (pure, unit-tested) builds the
+request body for Huawei's Nova-compatible batch action API
+(`POST /v1/{project_id}/cloudservers/action` - `os-start`/`os-stop`/
+`reboot`, each accepting a SOFT/HARD mode for stop/reboot). The ServiceNow
+wrapper, `service-graph/HcConnectorEcsLifecycleAction.js`, is this
+project's first artifact that WRITES to the cloud account - everything
+before it only ever read. Two reuse decisions kept it thin:
+
+- **Credential/region resolution reuses `HC Resource Sync State`** (the
+  table every sync orchestrator already writes: account, region,
+  native_key, keyed by resource_type + ci) rather than adding a new
+  lookup path - given a CI sys_id, a single query resolves which account/
+  region it came from, then `createCredentialProvider()` resolves
+  credentials exactly as every sync orchestrator already does.
+- **Signing reuses `HuaweiECSDiscovery._sign()` directly**
+  (`new HuaweiECSDiscovery(config)._sign(req)`) instead of duplicating the
+  SDK-HMAC-SHA256 crypto block a ninth time. This is the same cross-
+  Script-Include delegation `HcConnectorEcsSync.js` already uses for
+  fetch/reconcile - `HuaweiECSDiscovery.js` stays untouched (frozen,
+  real-PDI verified), only read from. Confirmed safe to call externally:
+  `_sign()` resolves credentials via `_explicitCredential`
+  (`config.accessKey`/`.secretKey`, already how every orchestrator
+  constructs it), never `gs.getProperty()`, when explicit credentials are
+  supplied.
+
+Exposed via three `cmdb_ci_vm_instance` UI Actions (Start/Stop/Reboot
+Instance) - server-side only, no GlideAjax, matching the "Run Sync Now"
+UI Action's already-proven pattern (see the "Setup automation" section
+above) rather than reopening the UI Page question this project already
+decided against. Each UI Action's Condition field calls
+`HcConnectorEcsLifecycleAction.isManaged(current.getUniqueValue())` so the
+buttons only appear on CIs this connector actually discovered -
+`cmdb_ci_vm_instance` is a shared platform table other Discovery sources
+may also populate.
+
+**Status: real-PDI verified end to end** (start + stop, against a real
+sandbox ECS instance, confirmed both in the ServiceNow log output AND
+directly on the Huawei Cloud console - not just "no error thrown"). Two
+real issues were found and fixed along the way, both instructive:
+
+1. **First real-PDI paste failed** with `"createCredentialProvider" is not
+   defined"` - the Script Include had been pasted directly rather than
+   generated, and `createCredentialProvider()` is a bare function (not a
+   `Class.create()` class), so it's only visible within whichever ONE file
+   it's physically concatenated into - it doesn't become globally
+   available just because `HcConnectorEcsSync` happened to load it first,
+   the same reason `HcConnectorEcsSync.js`/`HcConnectorVpcSync.js` needed
+   codegen treatment in the first place. Fixed by adding
+   `HcConnectorEcsLifecycleAction.js` to `scripts/build-script-include.js`'s
+   `BUILD_TARGETS` (inlining only `lib/credentialProvider.js`, not the
+   full `SHARED_MODULES` list - this file doesn't touch `HC Resource Sync
+   State` lifecycle/planning logic) - `docs/generated/
+   HcConnectorEcsLifecycleAction.generated.js` is the paste-ready output,
+   same convention as the sync orchestrators.
+2. **First stop attempt against a stale CI produced a false-positive
+   success.** The CI tested against (`wsl-manual-smoke-test-1784281457`)
+   had already been deleted on Huawei Cloud outside this project's own
+   Terraform state (real drift - `terraform show` still reported it
+   `ACTIVE`), but `HcConnectorEcsLifecycleAction` doesn't check CI
+   freshness before acting, so the code issued the stop request as
+   normal - and Huawei's API returned a plain `HTTP 200` for a
+   nonexistent server, with a response body this code wasn't logging on
+   the success path (only the failure path logged `responseBody`). Fixed
+   by logging the response body on success too, then re-tested against a
+   freshly Terraform-applied real instance instead of chasing the stale
+   one further - not a code-correctness bug in the strict sense (the
+   action really was accepted by Huawei), but a real gap in this code's
+   ability to distinguish "accepted" from "meaningful," logged here rather
+   than silently worked around.
+
+**Huawei's real response shape, now confirmed**: both `os-stop` and
+`os-start` returned `HTTP 200` with body `{"job_id": "<uuid>"}` - not the
+empty body this code originally assumed. The job_id is real and points at
+Huawei's own async job-tracking API (`GET /v1/{project_id}/jobs/{job_id}`,
+not yet called from this code) - a genuine future improvement (poll the
+job instead of trusting the 200 alone) logged here, not built yet, since
+this slice's real-PDI bar was "the action actually happens on the real
+resource," which is now independently confirmed via the Huawei Cloud
+console for both stop and start, not just this job_id.
+
+Also not yet tested: the real error shape when calling `stop` on an
+already-stopped instance (or `start` on an already-running one) - Huawei's
+API is expected to reject this, not silently no-op, and this code doesn't
+special-case it.
+
+**Deliberately out of scope for this slice**: resize/attach/detach (higher
+blast-radius operations, left for a later Day-2 pass once start/stop/
+reboot's real error handling is proven), and any Flow Designer/
+IntegrationHub wrapping (the UI Action is the minimal real capability;
+wiring it into a Flow Designer action for use in Change/Request workflows
+is additive and doesn't change anything built here).
+
 ## Security model (target, Phase 1 partial)
 
 - No hardcoded AK/SK, passwords, webhook secrets, or real account/resource

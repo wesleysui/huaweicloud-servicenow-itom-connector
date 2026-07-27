@@ -78,6 +78,14 @@ var BUILD_TARGETS = [
     templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorCceSync.js'),
     outFile: path.join(__dirname, '..', 'docs', 'generated', 'HcConnectorCceSync.generated.js'),
     modules: SHARED_MODULES
+  },
+  {
+    // Only needs credentialProvider.js - unlike the sync orchestrators
+    // above, this one doesn't touch HC Resource Sync State lifecycle/
+    // planning logic, just credential resolution.
+    templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorEcsLifecycleAction.js'),
+    outFile: path.join(__dirname, '..', 'docs', 'generated', 'HcConnectorEcsLifecycleAction.generated.js'),
+    modules: ['credentialProvider.js']
   }
 ];
 

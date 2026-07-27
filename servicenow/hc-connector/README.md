@@ -206,6 +206,43 @@ native forms + a UI Action, no custom GlideAjax/Jelly setup pages:
   Studio development for it). See `docs/ARCHITECTURE.md`'s "Setup
   automation & distribution packaging" section.
 
+## Day-2 operations (cross-cutting, new — real-PDI verified)
+
+The first Day-2 (write, not just read) capability in this project: ECS
+start/stop/reboot. Picked ahead of the remaining resource-coverage phases
+because a capability gap review against a mainstream cloud connector's own
+feature set (see `docs/ARCHITECTURE.md`'s "Roadmap review" section)
+surfaced Day-2 ops and production multi-account auth as the two gaps that
+matter more than additional resource types — and unlike IAM Agency (needs
+a real Organizations account), Day-2 ops can be built and real-PDI
+verified against the existing sandbox right now.
+
+- **`lib/ecsLifecycleAction.js`** — pure, unit-tested request-body builder
+  for Huawei's Nova-compatible batch action API
+  (`POST /v1/{project_id}/cloudservers/action`).
+- **`service-graph/HcConnectorEcsLifecycleAction.js`** — resolves a CI's
+  account/region via the same `HC Resource Sync State` table every sync
+  orchestrator already writes, resolves credentials via
+  `createCredentialProvider()`, and reuses `HuaweiECSDiscovery._sign()`
+  directly (cross-Script-Include delegation, same pattern
+  `HcConnectorEcsSync.js` already uses) rather than duplicating the
+  SDK-HMAC-SHA256 crypto block a ninth time.
+- **Three `cmdb_ci_vm_instance` UI Actions** (Start/Stop/Reboot Instance,
+  `ui-actions/hc_vm_instance_{start,stop,reboot}.js`) — server-side only,
+  same "Run Sync Now" pattern, gated by
+  `HcConnectorEcsLifecycleAction.isManaged()` so the buttons only appear on
+  CIs this connector actually discovered.
+
+See `docs/ARCHITECTURE.md`'s "Day-2 operations" section for the full
+design and `docs/INSTALL.md` Step 10 for setup/verification steps.
+Real-PDI verified: start/stop confirmed against a real sandbox instance,
+both in the ServiceNow log and directly on the Huawei Cloud console (not
+just "no error thrown" — a first attempt against a since-deleted instance
+produced a misleading HTTP 200 with no useful log detail, fixed by logging
+the response body on the success path too, then re-verified against a
+freshly provisioned instance). Huawei's batch action API returns `HTTP
+200` with `{"job_id": "..."}`, not an empty body as originally assumed.
+
 ## What Phase 1 delivers (the scaffold Phase 2A builds on)
 
 - **Table schemas** (`tables/*.schema.json`) for the multi-account/region
