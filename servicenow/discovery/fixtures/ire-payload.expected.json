@@ -9,6 +9,7 @@
         "ip_address": "192.168.10.15",
         "operational_status": "1",
         "location": "cn-north-4a",
+        "nics": 1,
         "short_description": "Huawei Cloud ECS - discovered via custom REST integration",
         "discovery_source": "Huawei Cloud Custom Discovery"
       }

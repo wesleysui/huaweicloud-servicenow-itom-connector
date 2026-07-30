@@ -1054,6 +1054,86 @@ path, and the CI form's related list all work together exactly as designed,
 with zero Background Scripts or Huawei Cloud console visits needed during
 the test itself.
 
+## CI hardware fields (CPUs/Disks/Memory/Network adapters, all real-PDI verified)
+
+Found via real-PDI observation: `cmdb_ci_vm_instance`'s `cpus`/`disks_size`/
+`memory`/`nics` fields have always been empty for Huawei ECS-discovered
+CIs - `mapEcsToIRE.js`'s `mapServerToIREItem()` never wrote them.
+
+**Network adapters (`nics`), done first - free.** `server.addresses`
+(already fetched for `getFixedIp()`) has everything needed; no new Huawei
+API call. Counts distinct network keys, not total IP entries - one NIC's
+address array commonly holds both a `fixed` (private) and `floating`
+(public/EIP) IP, so summing entries would double-count any instance with a
+bound EIP (confirmed against this project's own fixture data, which has
+exactly that shape). Field name (`nics`) confirmed via this instance's real
+`sys_dictionary`, not guessed - `mapEcsToIRE.js`'s own header comment
+already documents getting burned once before guessing CI field names
+('virtual'/'host_name'/'u_vpc_id', silently dropped). **Real-PDI
+verified**: `network_adapters` showed `1` on the real sandbox instance
+(one NIC, confirmed correct - no EIP was bound at the time of this test).
+
+**CPUs/Memory, real-PDI verified.** A separate Huawei endpoint, `ListFlavors`
+(`GET /v1/{project_id}/cloudservers/flavors?flavor_id={id}`, confirmed via
+Huawei's published API docs, not guessed) - the ECS list response's
+`server.flavor` only carries the flavor ID/name, not vcpus/ram values.
+`vcpus` comes back as a **string** despite being numeric (`parseInt`'d);
+`ram` is already an Integer in MB, matching `cmdb_ci_vm_instance.memory`'s
+unit exactly. `HuaweiECSDiscovery._buildFlavorLookup()` calls this once per
+**distinct** flavor id in a batch (not once per server - a real fleet
+typically uses few distinct flavors), no persistent cache across runs (a
+flavor's spec never changes, but re-fetching once per sync is cheap and
+keeps this stateless). A lookup failure for one flavor id is graceful -
+just leaves `cpus`/`memory` unset on the affected CIs, not a batch failure.
+
+This surfaced a real credential-scoping bug while wiring it in:
+`HcConnectorEcsSync.js`'s `_reconcileAndUpsert()` used to construct a
+**throwaway, credential-less** `HuaweiECSDiscovery` instance to call
+`reconcileCIs()`, safe only because `reconcileCIs()` used to need nothing
+but `this.region`. Now that it makes its own real signed HTTP call (the
+flavor lookup), that throwaway instance would have silently fallen back to
+the single-account compat-mode System Properties credential instead of the
+actual account/region's real credential - wrong account's AK/SK signing a
+call meant for a different one, in a genuine multi-account setup. Fixed by
+threading the real, already-credentialed `disco` instance `_fetchServers()`
+built through to `_reconcileAndUpsert()` instead of constructing a new one.
+
+**Disks, real-PDI verified.** No CMDB relation between EVS volume CIs and
+ECS instance CIs exists in this project's model - real-PDI testing already
+found and documented a hard platform limitation (`relations[].parent`/
+`.child` deserialize as a Java `Integer` server-side, so a real
+already-committed sys_id from a separate discovery run throws
+`InvalidFormatException` - see `mapEvsToIRE.js`'s header comment). So
+instead of a relation, `HcConnectorEvsSync.js` does a direct `GlideRecord`
+field update on the matching `cmdb_ci_vm_instance` CI's `disks`/
+`disks_size`, using the SAME EVS volume list already fetched for its own
+reconciliation - no new Huawei API call. `lib/diskAggregation.js`'s pure
+`aggregateDisksByServer()` groups volumes by `attachments[0].server_id` and
+sums count/size; `_updateEcsDiskFields()` does the actual write, looked up
+by `correlation_id`. Skips (no-op) any server id with no matching CI yet -
+self-heals on a later EVS run once ECS Discovery has created it, same
+repeat-run-converges philosophy as the rest of this project.
+
+**Both real-PDI verified end to end.** Running `HcConnectorEcsSync().runAll()`
+against the real sandbox instance produced `hasError:false` with the ECS
+CI's `operation:"UPDATE"`, and the CI form showed the real values (`cpus:
+2`, `memory: 4,096` MB - the actual flavor the instance had been resized
+to earlier in this same testing session). Running
+`HcConnectorEvsSync().runAll()` produced `hasError:false` with the EVS
+volume CI `operation:"INSERT"`, and - the interesting part - a real
+platform log line confirming the cross-scope write actually happened:
+`Security restricted: Write operation on table 'cmdb_ci_vm_instance' from
+scope 'HC ITOM Connector' was granted and added to 'HC ITOM Connector'
+cross scope privileges`. This is the first artifact in this project that
+writes to a platform table via a direct `GlideRecord.update()` from
+application logic rather than through IRE's `createOrUpdateCI()` - IRE has
+always handled cross-scope writes to `cmdb_ci_vm_instance` internally
+before now, so this is the first time this project's own code triggered
+ServiceNow's cross-scope privilege auto-grant directly. The CI form
+confirmed the real result: `disks: 1`, `disks_size: 40` (GB, matching the
+real EVS volume actually created), alongside the already-verified `cpus`/
+`memory`/`nics` values on the same CI.
+
 ## Security model (target, Phase 1 partial)
 
 - No hardcoded AK/SK, passwords, webhook secrets, or real account/resource

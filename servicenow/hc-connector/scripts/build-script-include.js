@@ -55,9 +55,12 @@ var BUILD_TARGETS = [
     modules: SHARED_MODULES
   },
   {
+    // Also inlines diskAggregation.js (not shared with the other
+    // orchestrators) - see that file's header comment and
+    // HcConnectorEvsSync.js's "CI hardware fields side effect" section.
     templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorEvsSync.js'),
     outFile: path.join(__dirname, '..', 'docs', 'generated', 'HcConnectorEvsSync.generated.js'),
-    modules: SHARED_MODULES
+    modules: SHARED_MODULES.concat(['diskAggregation.js'])
   },
   {
     templateFile: path.join(__dirname, '..', 'service-graph', 'HcConnectorElbSync.js'),

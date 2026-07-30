@@ -134,7 +134,17 @@ standalone CI class exists for routing config under ServiceNow's CMDB CI
 Class Model, confirmed via research, not assumed. CCE is cluster-only —
 anything *inside* a cluster needs a MID Server reaching the cluster's own
 Kubernetes API, a real architectural boundary covered in ARCHITECTURE.md's
-"Phase 4" section (direction decided, not yet deployed).
+"Phase 4" section (direction decided, not yet deployed). ECS's
+`cpus`/`memory`/`nics`/`disks`/`disks_size` CI fields — always empty before
+this pass — are now populated and **real-PDI verified**: `nics` from data
+already fetched (free); `cpus`/`memory` from a new per-distinct-flavor
+Huawei API call; `disks`/`disks_size` via a direct field write from
+`HcConnectorEvsSync.js` (no CMDB relation possible between EVS and ECS CIs
+— a hard platform type constraint found and documented, not a design
+choice — this also produced this project's first direct cross-scope
+`GlideRecord` write to a platform table, confirmed via a real
+`cross scope privileges` log line, not just IRE handling it internally).
+See ARCHITECTURE.md's "CI hardware fields" section for the full writeup.
 
 **Day-2 operations detail**: this project's first WRITE (not read-only)
 operation against the cloud account. Checks Huawei's async job-tracking

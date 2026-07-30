@@ -162,6 +162,76 @@ HuaweiECSDiscovery.prototype = {
     },
 
     // ------------------------------------------------------------------
+    // Flavor detail lookup (CPUs/Memory CI fields) - a separate Huawei
+    // endpoint, GET /v1/{project_id}/cloudservers/flavors?flavor_id=X
+    // ("ListFlavors", confirmed via Huawei's published API docs, not
+    // guessed - it also accepts availability_zone/limit/marker, all
+    // unused here). server.flavor.id/.name (already in the fetched server
+    // list) is NOT enough - vcpus/ram values need this separate call.
+    // Response envelope is {"flavors": [...]}; vcpus comes back as a
+    // STRING despite being numeric (parseInt'd below), ram is already an
+    // Integer in MB - matching cmdb_ci_vm_instance.memory's unit exactly,
+    // no conversion needed. Field names (cpus/memory on the CI) confirmed
+    // via this instance's real sys_dictionary, not guessed.
+    // ------------------------------------------------------------------
+    _fetchFlavorDetails: function(flavorId) {
+        var host = 'ecs.' + this.region + '.myhuaweicloud.com';
+        var pathname = '/v1/' + this.projectId + '/cloudservers/flavors';
+        try {
+            var signed = this._sign({ method: 'GET', pathname: pathname, host: host, queryParams: { flavor_id: flavorId } });
+
+            var request = new sn_ws.RESTMessageV2();
+            request.setHttpMethod('GET');
+            request.setEndpoint('https://' + host + pathname + '?flavor_id=' + flavorId);
+            request.setRequestHeader('Content-Type', signed['Content-Type']);
+            request.setRequestHeader('X-Sdk-Date', signed['X-Sdk-Date']);
+            request.setRequestHeader('Authorization', signed['Authorization']);
+            request.setRequestHeader('host', host);
+
+            var response = request.execute();
+            var status = response.getStatusCode();
+            var body = response.getBody();
+
+            if (status == 200) {
+                var parsed = JSON.parse(body);
+                var flavor = (parsed.flavors || [])[0];
+                if (!flavor) {
+                    gs.warn('[HuaweiECSDiscovery] flavor detail for ' + flavorId + ' returned no flavors[] entry');
+                    return null;
+                }
+                return { vcpus: parseInt(flavor.vcpus, 10), ram: flavor.ram };
+            }
+            gs.warn('[HuaweiECSDiscovery] flavor detail fetch for ' + flavorId + ' got HTTP ' + status + ' - ' + body);
+            return null;
+        } catch (ex) {
+            gs.warn('[HuaweiECSDiscovery] flavor detail fetch exception for ' + flavorId + ': ' + ex.message);
+            return null;
+        }
+    },
+
+    // Builds {flavorId: {vcpus, ram}} for every DISTINCT flavor id seen
+    // across this batch of servers - one ListFlavors call per distinct
+    // flavor, not per server (a real fleet typically uses a small number
+    // of standard flavors). No persistent cache across sync runs - a
+    // flavor's vcpus/ram never changes, but re-fetching once per run is
+    // cheap and keeps this stateless, consistent with the rest of this
+    // Script Include. A flavor lookup failure is graceful (see
+    // _fetchFlavorDetails() above) - missing entries just leave
+    // cpus/memory unset on the affected CIs, not a batch-wide failure.
+    _buildFlavorLookup: function(servers) {
+        var lookup = {};
+        var seen = {};
+        for (var i = 0; i < servers.length; i++) {
+            var flavorId = servers[i].flavor && servers[i].flavor.id;
+            if (!flavorId || seen[flavorId]) continue;
+            seen[flavorId] = true;
+            var detail = this._fetchFlavorDetails(flavorId);
+            if (detail) lookup[flavorId] = detail;
+        }
+        return lookup;
+    },
+
+    // ------------------------------------------------------------------
     // Map & reconcile via Identification & Reconciliation Engine
     // ------------------------------------------------------------------
     // Full VPC/Subnet/EVS-based relations are deferred until those resource
@@ -178,6 +248,8 @@ HuaweiECSDiscovery.prototype = {
     // servicenow/discovery/README.md gotcha #10.
     reconcileCIs: function(servers) {
         if (!servers.length) return;
+
+        var flavorLookup = this._buildFlavorLookup(servers);
 
         var items = [];
         var relations = [];
@@ -199,6 +271,23 @@ HuaweiECSDiscovery.prototype = {
 
         for (var i = 0; i < servers.length; i++) {
             var s = servers[i];
+            var values = {
+                name:               s.name || '',
+                correlation_id:     s.id || '',              // stable unique key
+                object_id:          s.id || '',              // this instance's identify rule for cmdb_ci_vm_instance requires object_id specifically
+                ip_address:         this._getFixedIp(s.addresses) || '',
+                operational_status: (s.status === 'ACTIVE') ? '1' : '2',
+                location:           s['OS-EXT-AZ:availability_zone'] || '',
+                nics:               this._countNics(s.addresses),
+                short_description:  'Huawei Cloud ECS - discovered via custom REST integration',
+                discovery_source:   'Huawei Cloud Custom Discovery'
+            };
+            var flavorId = s.flavor && s.flavor.id;
+            var flavorDetail = flavorId ? flavorLookup[flavorId] : null;
+            if (flavorDetail) {
+                values.cpus = flavorDetail.vcpus;
+                values.memory = flavorDetail.ram;
+            }
             items.push({
                 // 'virtual', 'host_name', and 'u_vpc_id' were removed after
                 // real testing showed they're silently dropped on this
@@ -208,16 +297,7 @@ HuaweiECSDiscovery.prototype = {
                 // planned relations[]-based feature, not a flat custom
                 // field, see docs/ROADMAP.md).
                 className: 'cmdb_ci_vm_instance',
-                values: {
-                    name:               s.name || '',
-                    correlation_id:     s.id || '',              // stable unique key
-                    object_id:          s.id || '',              // this instance's identify rule for cmdb_ci_vm_instance requires object_id specifically
-                    ip_address:         this._getFixedIp(s.addresses) || '',
-                    operational_status: (s.status === 'ACTIVE') ? '1' : '2',
-                    location:           s['OS-EXT-AZ:availability_zone'] || '',
-                    short_description:  'Huawei Cloud ECS - discovered via custom REST integration',
-                    discovery_source:   'Huawei Cloud Custom Discovery'
-                }
+                values: values
             });
             var vmIndex = items.length - 1;
             relations.push({ parent: String(hostIndex), child: String(vmIndex), type: 'Runs on::Runs' });
@@ -525,6 +605,22 @@ HuaweiECSDiscovery.prototype = {
             }
         }
         return '';
+    },
+
+    // Mirrors lib/mapEcsToIRE.js's countNics(). Free win for
+    // cmdb_ci_vm_instance.nics - this data is already fetched for
+    // _getFixedIp() above, no extra Huawei API call needed. Field name
+    // confirmed via this instance's real sys_dictionary, not guessed.
+    // Counts distinct network keys, NOT total IP entries - one NIC's
+    // address array commonly holds both a fixed (private) and floating
+    // (public/EIP) IP, and summing entries would double-count any
+    // instance with a bound EIP.
+    _countNics: function(addresses) {
+        var count = 0;
+        for (var net in addresses || {}) {
+            count++;
+        }
+        return count;
     },
 
     // ------------------------------------------------------------------

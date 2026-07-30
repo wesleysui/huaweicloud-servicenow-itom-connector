@@ -524,7 +524,7 @@ HcConnectorEcsSync.prototype = {
 
         var reconcileResult;
         try {
-            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.servers);
+            reconcileResult = this._reconcileAndUpsert(account, region, fetchResult.servers, fetchResult.disco);
         } catch (reconcileEx) {
             gs.error('[HcConnectorEcsSync] reconcile failed for account=' + account.account_id +
                 ' region=' + region.region + ': ' + reconcileEx.message);
@@ -571,7 +571,7 @@ HcConnectorEcsSync.prototype = {
     // Reconcile (delegates to the unchanged HuaweiECSDiscovery.reconcileCIs)
     // + upsert HC Resource Sync State + retirement
     // ------------------------------------------------------------------
-    _reconcileAndUpsert: function(account, region, servers) {
+    _reconcileAndUpsert: function(account, region, servers, disco) {
         var self = this;
 
         // Zero servers this run is a valid, expected state (e.g. the
@@ -588,11 +588,14 @@ HcConnectorEcsSync.prototype = {
         // to sync-state planning with an empty seenRecords set, so existing
         // rows correctly transition toward retirement.
         if (servers.length > 0) {
-            // Re-resolve the same disco instance's reconcileCIs via a fresh fetch-time instance
-            // is unnecessary here - the caller already has `disco` from _fetchServers, but
-            // reconcileCIs only needs `this.region` (for the placeholder virtualization-server
-            // name) which a throwaway instance configured the same way reproduces identically.
-            var disco = new HuaweiECSDiscovery({ region: region.region });
+            // Reuses the SAME disco instance _fetchServers already built (passed in as a
+            // parameter), rather than constructing a throwaway one here - reconcileCIs() now
+            // makes its own real HTTP call to Huawei's flavor-detail endpoint (for cpus/memory
+            // CI fields, see HuaweiECSDiscovery.js), so it genuinely needs the real
+            // accessKey/secretKey/projectId this account/region resolved, not just `this.region`.
+            // A throwaway credential-less instance was safe when reconcileCIs() only needed
+            // `this.region` for the placeholder virtualization-server name - that's no longer
+            // true, so reusing the real instance is a correctness fix, not just tidiness.
             var result = disco.reconcileCIs(servers);
 
             // reconcileCIs catches its own exceptions internally and returns undefined on
