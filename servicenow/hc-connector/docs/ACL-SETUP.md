@@ -153,6 +153,26 @@ class has no OOTB containment/hosting rule registered at all, so
 `HuaweiCceDiscovery.js` ships items with zero relations and this was
 accepted with `hasError:false` on the first real-PDI run.
 
+## Step 6 (Day-2 ops) — Create the `HC Day-2 Action Log` table
+
+A 7th table, added after all six Day-2 lifecycle actions (start/stop/
+reboot/resize/attach/detach) were real-PDI verified - see
+`docs/ARCHITECTURE.md`'s "Day-2 operations" section. Operational data
+(every action invocation's request/final status), not configuration - same
+category as `HC Discovery Run`/`HC Resource Sync State`, so it keeps
+Studio's table-default ACLs unchanged, no Step 3-style write restriction.
+
+1. Open Studio for the app at scope `x_2021019_huawei_0`.
+2. File > New File > Table.
+3. **Name**: `hc_day2_action_log` (-> `x_2021019_huawei_0_hc_day2_action_log`).
+4. **Label**: `HC Day-2 Action Log`.
+5. Add every field from `docs/generated/tables/hc_day2_action_log.md`,
+   including the `ci` reference field's `reference_table` = `cmdb_ci_vm_instance`
+   and `requested_by`'s `reference_table` = `sys_user` (both platform
+   tables, not this app's own - same pattern already used for
+   `hc_resource_sync_state.ci -> cmdb_ci`).
+6. Save.
+
 ## Verification
 
 After Steps 1–3, before moving on to running `HcConnectorEcsSync.generated.js`:

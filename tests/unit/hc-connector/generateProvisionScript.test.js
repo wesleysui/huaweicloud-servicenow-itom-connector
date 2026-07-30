@@ -11,11 +11,11 @@ describe('loadSchemasInDependencyOrder', () => {
     expect(indexOf('hc_cloud_region')).toBeLessThan(indexOf('hc_resource_sync_state'));
   });
 
-  it('includes all 6 known tables exactly once', () => {
+  it('includes all 7 known tables exactly once', () => {
     const schemas = loadSchemasInDependencyOrder();
-    expect(schemas).toHaveLength(6);
+    expect(schemas).toHaveLength(7);
     const names = schemas.map((s) => s.name);
-    expect(new Set(names).size).toBe(6);
+    expect(new Set(names).size).toBe(7);
   });
 });
 

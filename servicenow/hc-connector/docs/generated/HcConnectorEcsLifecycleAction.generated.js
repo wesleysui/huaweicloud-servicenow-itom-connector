@@ -78,7 +78,12 @@
 // pre-check - consistent with how performAction() above was built (let
 // Huawei's own API surface the real rejection-error shape, then fix based
 // on what real-PDI testing actually shows, rather than guessing at
-// pre-validation logic). Not yet real-PDI verified.
+// pre-validation logic). Real-PDI verified end to end: job reached SUCCESS
+// (~38s wall-clock), flavor change independently confirmed on the Huawei
+// Cloud console. Found and fixed a real scoped-app restriction along the
+// way, in HcConnectorEcsLifecycleAjax.js (the GlideAjax bridge this needed):
+// AbstractAjaxProcessor must be referenced as global.AbstractAjaxProcessor
+// from inside a scoped app.
 //
 // performAttach()/performDetach() (added alongside resize) target Huawei's
 // disk-attach/detach endpoints, researched the same way (WebSearch/WebFetch
@@ -90,10 +95,25 @@
 // ?delete_flag=1 query param for a forced detach, so there's no
 // buildDetachRequestBody() to mirror; the wrapper builds that path/query
 // directly). Both return the same async {"job_id": "..."} shape, reusing
-// _extractJobId()/_fetchJobStatus(). Not yet real-PDI verified. Both act on
-// the same ECS CI (_resolveContext(ciSysId) - the target is still "this VM
-// instance", volumeId is a separate free-form input, same shape as
-// performResize()'s flavorRef), not a lookup against a separate EVS CI.
+// _extractJobId()/_fetchJobStatus(). Real-PDI verified end to end: attach
+// job reached SUCCESS (~3s), detach job reached SUCCESS (~2.5s), disk's
+// final "available" state independently confirmed on the Huawei Cloud
+// console. Both act on the same ECS CI (_resolveContext(ciSysId) - the
+// target is still "this VM instance", volumeId is a separate free-form
+// input, same shape as performResize()'s flavorRef), not a lookup against a
+// separate EVS CI.
+//
+// HC Day-2 Action Log (added after all six actions were real-PDI verified):
+// every performX() method now writes one row per invocation (via
+// _insertActionLog()) and checkJobStatus() updates that row when it's
+// called again (via _updateActionLogByJobId()) - the real gap this closes
+// is that a UI Action's info message is a one-time popup, so if the first
+// job-status check wasn't terminal yet, there was no way to learn the final
+// SUCCESS/FAIL outcome without Background Scripts or the Huawei Cloud
+// console. pollPendingActionLogs() (called by the new
+// scheduled-jobs/hc_connector_day2_job_poller.js) periodically re-checks
+// every still-pending row so the CI form's own related list eventually
+// shows the real outcome without anyone having to go looking for it.
 
 // ---- inlined from lib/credentialProvider.js (do not hand-edit here - edit the source and regenerate) ----
 /**
@@ -208,6 +228,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         this.ACCOUNT_TABLE = this.SCOPE + '_hc_cloud_account';
         this.REGION_TABLE = this.SCOPE + '_hc_cloud_region';
         this.SYNC_STATE_TABLE = this.SCOPE + '_hc_resource_sync_state';
+        this.ACTION_LOG_TABLE = this.SCOPE + '_hc_day2_action_log';
         this.RESOURCE_TYPE = 'ecs';
     },
 
@@ -259,6 +280,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
         var pathname = '/v1/' + ctx.region.project_id + '/cloudservers/action';
         var body = JSON.stringify(this._buildActionRequestBody(action, ctx.nativeKey, opts));
+        var paramsStr = opts ? JSON.stringify(opts) : '';
 
         var signed = disco._sign({ method: 'POST', pathname: pathname, host: host, body: body });
 
@@ -278,6 +300,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (status < 200 || status >= 300) {
             gs.error('[HcConnectorEcsLifecycleAction] ' + action + ' failed for CI ' + ciSysId +
                 ' (server ' + ctx.nativeKey + '): ' + status + ' - ' + responseBody);
+            this._insertActionLog(ciSysId, action, paramsStr, null, 'fail', 'HTTP ' + status + ' - ' + responseBody);
             throw new Error('ECS ' + action + ' action failed: HTTP ' + status + ' - ' + responseBody);
         }
 
@@ -286,6 +309,7 @@ HcConnectorEcsLifecycleAction.prototype = {
 
         var jobId = this._extractJobId(responseBody);
         if (!jobId) {
+            this._insertActionLog(ciSysId, action, paramsStr, null, 'requested', null);
             return { status: status, body: responseBody, jobId: null, jobStatus: null };
         }
 
@@ -293,11 +317,14 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (jobResult && jobResult.status === 'FAIL') {
             gs.error('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' FAILED for CI ' + ciSysId +
                 ': ' + JSON.stringify(jobResult));
-            throw new Error('ECS ' + action + ' action was accepted (HTTP ' + status + ') but job ' + jobId +
-                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+            var failMsg = 'ECS ' + action + ' action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult));
+            this._insertActionLog(ciSysId, action, paramsStr, jobId, 'fail', failMsg);
+            throw new Error(failMsg);
         }
         if (jobResult && jobResult.status === 'SUCCESS') {
             gs.info('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            this._insertActionLog(ciSysId, action, paramsStr, jobId, 'success', null);
             return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
         }
 
@@ -305,6 +332,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         gs.info('[HcConnectorEcsLifecycleAction] ' + action + ' job ' + jobId + ' for CI ' + ciSysId +
             ' not yet terminal at first check (status=' + observedStatus + ') - not treated as an error, call ' +
             'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        this._insertActionLog(ciSysId, action, paramsStr, jobId, 'running', null);
         return { status: status, body: responseBody, jobId: jobId, jobStatus: observedStatus };
     },
 
@@ -362,6 +390,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (status < 200 || status >= 300) {
             gs.error('[HcConnectorEcsLifecycleAction] resize failed for CI ' + ciSysId +
                 ' (server ' + ctx.nativeKey + ' -> ' + flavorRef + '): ' + status + ' - ' + responseBody);
+            this._insertActionLog(ciSysId, 'resize', flavorRef, null, 'fail', 'HTTP ' + status + ' - ' + responseBody);
             throw new Error('ECS resize action failed: HTTP ' + status + ' - ' + responseBody);
         }
 
@@ -370,6 +399,7 @@ HcConnectorEcsLifecycleAction.prototype = {
 
         var jobId = this._extractJobId(responseBody);
         if (!jobId) {
+            this._insertActionLog(ciSysId, 'resize', flavorRef, null, 'requested', null);
             return { status: status, body: responseBody, jobId: null, jobStatus: null };
         }
 
@@ -377,11 +407,14 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (jobResult && jobResult.status === 'FAIL') {
             gs.error('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' FAILED for CI ' + ciSysId +
                 ': ' + JSON.stringify(jobResult));
-            throw new Error('ECS resize action was accepted (HTTP ' + status + ') but job ' + jobId +
-                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+            var resizeFailMsg = 'ECS resize action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult));
+            this._insertActionLog(ciSysId, 'resize', flavorRef, jobId, 'fail', resizeFailMsg);
+            throw new Error(resizeFailMsg);
         }
         if (jobResult && jobResult.status === 'SUCCESS') {
             gs.info('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            this._insertActionLog(ciSysId, 'resize', flavorRef, jobId, 'success', null);
             return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
         }
 
@@ -389,6 +422,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         gs.info('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' for CI ' + ciSysId +
             ' not yet terminal at first check (status=' + observedStatus + ') - not treated as an error, call ' +
             'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        this._insertActionLog(ciSysId, 'resize', flavorRef, jobId, 'running', null);
         return { status: status, body: responseBody, jobId: jobId, jobStatus: observedStatus };
     },
 
@@ -445,6 +479,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (status < 200 || status >= 300) {
             gs.error('[HcConnectorEcsLifecycleAction] attach failed for CI ' + ciSysId +
                 ' (server ' + ctx.nativeKey + ' <- volume ' + volumeId + '): ' + status + ' - ' + responseBody);
+            this._insertActionLog(ciSysId, 'attach', volumeId, null, 'fail', 'HTTP ' + status + ' - ' + responseBody);
             throw new Error('ECS attach action failed: HTTP ' + status + ' - ' + responseBody);
         }
 
@@ -453,6 +488,7 @@ HcConnectorEcsLifecycleAction.prototype = {
 
         var jobId = this._extractJobId(responseBody);
         if (!jobId) {
+            this._insertActionLog(ciSysId, 'attach', volumeId, null, 'requested', null);
             return { status: status, body: responseBody, jobId: null, jobStatus: null };
         }
 
@@ -460,11 +496,14 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (jobResult && jobResult.status === 'FAIL') {
             gs.error('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' FAILED for CI ' + ciSysId +
                 ': ' + JSON.stringify(jobResult));
-            throw new Error('ECS attach action was accepted (HTTP ' + status + ') but job ' + jobId +
-                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+            var attachFailMsg = 'ECS attach action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult));
+            this._insertActionLog(ciSysId, 'attach', volumeId, jobId, 'fail', attachFailMsg);
+            throw new Error(attachFailMsg);
         }
         if (jobResult && jobResult.status === 'SUCCESS') {
             gs.info('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            this._insertActionLog(ciSysId, 'attach', volumeId, jobId, 'success', null);
             return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
         }
 
@@ -472,6 +511,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         gs.info('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' for CI ' + ciSysId +
             ' not yet terminal at first check (status=' + attachObservedStatus + ') - not treated as an error, call ' +
             'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        this._insertActionLog(ciSysId, 'attach', volumeId, jobId, 'running', null);
         return { status: status, body: responseBody, jobId: jobId, jobStatus: attachObservedStatus };
     },
 
@@ -530,6 +570,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (status < 200 || status >= 300) {
             gs.error('[HcConnectorEcsLifecycleAction] detach failed for CI ' + ciSysId +
                 ' (server ' + ctx.nativeKey + ' -> volume ' + volumeId + '): ' + status + ' - ' + responseBody);
+            this._insertActionLog(ciSysId, 'detach', volumeId, null, 'fail', 'HTTP ' + status + ' - ' + responseBody);
             throw new Error('ECS detach action failed: HTTP ' + status + ' - ' + responseBody);
         }
 
@@ -538,6 +579,7 @@ HcConnectorEcsLifecycleAction.prototype = {
 
         var jobId = this._extractJobId(responseBody);
         if (!jobId) {
+            this._insertActionLog(ciSysId, 'detach', volumeId, null, 'requested', null);
             return { status: status, body: responseBody, jobId: null, jobStatus: null };
         }
 
@@ -545,11 +587,14 @@ HcConnectorEcsLifecycleAction.prototype = {
         if (jobResult && jobResult.status === 'FAIL') {
             gs.error('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' FAILED for CI ' + ciSysId +
                 ': ' + JSON.stringify(jobResult));
-            throw new Error('ECS detach action was accepted (HTTP ' + status + ') but job ' + jobId +
-                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+            var detachFailMsg = 'ECS detach action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult));
+            this._insertActionLog(ciSysId, 'detach', volumeId, jobId, 'fail', detachFailMsg);
+            throw new Error(detachFailMsg);
         }
         if (jobResult && jobResult.status === 'SUCCESS') {
             gs.info('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            this._insertActionLog(ciSysId, 'detach', volumeId, jobId, 'success', null);
             return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
         }
 
@@ -557,6 +602,7 @@ HcConnectorEcsLifecycleAction.prototype = {
         gs.info('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' for CI ' + ciSysId +
             ' not yet terminal at first check (status=' + detachObservedStatus + ') - not treated as an error, call ' +
             'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        this._insertActionLog(ciSysId, 'detach', volumeId, jobId, 'running', null);
         return { status: status, body: responseBody, jobId: jobId, jobStatus: detachObservedStatus };
     },
 
@@ -565,7 +611,9 @@ HcConnectorEcsLifecycleAction.prototype = {
     // from a Background Script, since performAction() only checks once
     // (see this file's header comment for why - gs.sleep() is fenced in
     // this scope, so a wait-and-poll loop isn't viable inside the same
-    // transaction).
+    // transaction). Also updates the matching HC Day-2 Action Log row (via
+    // _updateActionLogByJobId()) so a later re-check - whether ad hoc or
+    // from pollPendingActionLogs() below - keeps that row's status current.
     // @param ciSysId - the same CI passed to performAction()
     // @param jobId - from performAction()'s returned {jobId}
     // @returns the parsed job status body, or null if the check itself failed
@@ -590,7 +638,84 @@ HcConnectorEcsLifecycleAction.prototype = {
         });
 
         var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
-        return this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        var jobResult = this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        if (jobResult) {
+            if (jobResult.status === 'SUCCESS') {
+                this._updateActionLogByJobId(jobId, 'success', null);
+            } else if (jobResult.status === 'FAIL') {
+                this._updateActionLogByJobId(jobId, 'fail', jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult));
+            } else {
+                this._updateActionLogByJobId(jobId, 'running', null);
+            }
+        }
+        return jobResult;
+    },
+
+    // ------------------------------------------------------------------
+    // Public: re-checks every HC Day-2 Action Log row still in 'requested'
+    // or 'running' status. Called by scheduled-jobs/hc_connector_day2_job_poller.js
+    // on a schedule - the real mechanism (not a UI-session wait-and-poll
+    // loop, since gs.sleep() is fenced here) that eventually resolves a
+    // job's log row to 'success'/'fail' even if nobody ever comes back to
+    // manually check it. Reuses checkJobStatus() so the update logic only
+    // lives in one place.
+    // ------------------------------------------------------------------
+    pollPendingActionLogs: function() {
+        var gr = new GlideRecord(this.ACTION_LOG_TABLE);
+        gr.addQuery('status', 'IN', 'requested,running');
+        gr.addNotNullQuery('job_id');
+        gr.query();
+        var checked = 0;
+        while (gr.next()) {
+            var ciSysId = gr.getValue('ci');
+            var jobId = gr.getValue('job_id');
+            try {
+                this.checkJobStatus(ciSysId, jobId);
+                checked++;
+            } catch (ex) {
+                gs.warn('[HcConnectorEcsLifecycleAction] pollPendingActionLogs: checkJobStatus failed for job ' +
+                    jobId + ' (CI ' + ciSysId + '): ' + ex.message);
+            }
+        }
+        gs.info('[HcConnectorEcsLifecycleAction] pollPendingActionLogs checked ' + checked + ' pending job(s)');
+    },
+
+    // ------------------------------------------------------------------
+    // HC Day-2 Action Log writes. _insertActionLog() is called once per
+    // performX() invocation, at whichever exit point it reached (HTTP
+    // failure / job FAIL / job SUCCESS / job still running / no job_id at
+    // all) - always a fresh row, since each button click is a new,
+    // independent action request. _updateActionLogByJobId() is called from
+    // checkJobStatus() (ad hoc or via pollPendingActionLogs()) to move an
+    // existing row to a terminal status found on a later check - a no-op if
+    // no row matches that job_id (mirrors this file's existing
+    // _recordRegionError()-style get-or-noop pattern, not a hard failure).
+    // ------------------------------------------------------------------
+    _insertActionLog: function(ciSysId, action, params, jobId, status, errorMessage) {
+        var gr = new GlideRecord(this.ACTION_LOG_TABLE);
+        gr.initialize();
+        gr.ci = ciSysId;
+        gr.action = action;
+        if (params) gr.params = params;
+        if (jobId) gr.job_id = jobId;
+        gr.status = status;
+        if (errorMessage) gr.error_message = errorMessage;
+        gr.requested_by = gs.getUserID();
+        gr.requested_at = new GlideDateTime();
+        gr.updated_at = new GlideDateTime();
+        gr.insert();
+    },
+
+    _updateActionLogByJobId: function(jobId, status, errorMessage) {
+        if (!jobId) return;
+        var gr = new GlideRecord(this.ACTION_LOG_TABLE);
+        gr.addQuery('job_id', jobId);
+        gr.query();
+        if (!gr.next()) return;
+        gr.status = status;
+        if (errorMessage) gr.error_message = errorMessage;
+        gr.updated_at = new GlideDateTime();
+        gr.update();
     },
 
     // ------------------------------------------------------------------

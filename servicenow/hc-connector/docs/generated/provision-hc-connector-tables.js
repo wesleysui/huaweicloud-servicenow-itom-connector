@@ -238,6 +238,88 @@
     createChoiceIfMissing("x_2021019_huawei_0_hc_connector_config", "category", "discovery", "Discovery");
     createChoiceIfMissing("x_2021019_huawei_0_hc_connector_config", "category", "general", "General");
 
+    // --- HC Day-2 Action Log (x_2021019_huawei_0_hc_day2_action_log) ---
+    createTableIfMissing("x_2021019_huawei_0_hc_day2_action_log", "HC Day-2 Action Log", "x_2021019_huawei_0");
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "ci",
+        column_label: "CI",
+        internal_type: "reference",
+        reference: "cmdb_ci_vm_instance",
+        mandatory: true,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "action",
+        column_label: "Action",
+        internal_type: "choice",
+        mandatory: true,
+        unique: false
+    });
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "start", "Start");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "stop", "Stop");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "reboot", "Reboot");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "resize", "Resize");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "attach", "Attach Volume");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "action", "detach", "Detach Volume");
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "params",
+        column_label: "Params",
+        internal_type: "string",
+        max_length: 255,
+        mandatory: false,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "job_id",
+        column_label: "Job ID",
+        internal_type: "string",
+        max_length: 100,
+        mandatory: false,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "status",
+        column_label: "Status",
+        internal_type: "choice",
+        mandatory: true,
+        unique: false,
+        default_value: "requested"
+    });
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "status", "requested", "Requested");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "status", "running", "Running");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "status", "success", "Success");
+    createChoiceIfMissing("x_2021019_huawei_0_hc_day2_action_log", "status", "fail", "Fail");
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "requested_by",
+        column_label: "Requested By",
+        internal_type: "reference",
+        reference: "sys_user",
+        mandatory: false,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "requested_at",
+        column_label: "Requested At",
+        internal_type: "glide_date_time",
+        mandatory: true,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "updated_at",
+        column_label: "Updated At",
+        internal_type: "glide_date_time",
+        mandatory: false,
+        unique: false
+    });
+    createFieldIfMissing("x_2021019_huawei_0_hc_day2_action_log", {
+        element: "error_message",
+        column_label: "Error Message",
+        internal_type: "string",
+        max_length: 4000,
+        mandatory: false,
+        unique: false
+    });
+
     // --- HC Discovery Run (x_2021019_huawei_0_hc_discovery_run) ---
     createTableIfMissing("x_2021019_huawei_0_hc_discovery_run", "HC Discovery Run", "x_2021019_huawei_0");
     createFieldIfMissing("x_2021019_huawei_0_hc_discovery_run", {

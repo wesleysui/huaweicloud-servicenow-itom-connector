@@ -1,0 +1,82 @@
+{
+  "name": "hc_day2_action_log",
+  "label": "HC Day-2 Action Log",
+  "scope": "x_2021019_huawei_0",
+  "description": "One row per Day-2 lifecycle action invocation (start/stop/reboot/resize/attach/detach) against an ECS CI. Written by HcConnectorEcsLifecycleAction's performX() methods at request time, then updated to a terminal status (success/fail) either by a later ad hoc checkJobStatus() call or by the periodic HC Connector Day-2 Job Poller scheduled job - this is what lets an admin see the final outcome from the CI form's own related list, instead of needing Background Scripts or the Huawei Cloud console every time a job wasn't done yet at the first check.",
+  "fields": [
+    {
+      "name": "ci",
+      "column_type": "reference",
+      "reference_table": "cmdb_ci_vm_instance",
+      "label": "CI",
+      "mandatory": true
+    },
+    {
+      "name": "action",
+      "column_type": "choice",
+      "label": "Action",
+      "mandatory": true,
+      "choices": [
+        { "value": "start", "label": "Start" },
+        { "value": "stop", "label": "Stop" },
+        { "value": "reboot", "label": "Reboot" },
+        { "value": "resize", "label": "Resize" },
+        { "value": "attach", "label": "Attach Volume" },
+        { "value": "detach", "label": "Detach Volume" }
+      ]
+    },
+    {
+      "name": "params",
+      "column_type": "string",
+      "max_length": 255,
+      "label": "Params",
+      "mandatory": false
+    },
+    {
+      "name": "job_id",
+      "column_type": "string",
+      "max_length": 100,
+      "label": "Job ID",
+      "mandatory": false
+    },
+    {
+      "name": "status",
+      "column_type": "choice",
+      "label": "Status",
+      "mandatory": true,
+      "default_value": "requested",
+      "choices": [
+        { "value": "requested", "label": "Requested" },
+        { "value": "running", "label": "Running" },
+        { "value": "success", "label": "Success" },
+        { "value": "fail", "label": "Fail" }
+      ]
+    },
+    {
+      "name": "requested_by",
+      "column_type": "reference",
+      "reference_table": "sys_user",
+      "label": "Requested By",
+      "mandatory": false
+    },
+    {
+      "name": "requested_at",
+      "column_type": "glide_date_time",
+      "label": "Requested At",
+      "mandatory": true
+    },
+    {
+      "name": "updated_at",
+      "column_type": "glide_date_time",
+      "label": "Updated At",
+      "mandatory": false
+    },
+    {
+      "name": "error_message",
+      "column_type": "string",
+      "max_length": 4000,
+      "label": "Error Message",
+      "mandatory": false
+    }
+  ]
+}

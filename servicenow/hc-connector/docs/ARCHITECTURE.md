@@ -1007,6 +1007,53 @@ Same `AbstractAjaxProcessor`/`global.` fix from resize applied here too
 (same GlideAjax bridge, same file), so this feature's first real-PDI attempt
 went straight through with no new errors.
 
+### HC Day-2 Action Log (added after all six actions were real-PDI verified; real-PDI verified end to end itself)
+
+A real gap surfaced once all six actions worked: every UI Action's result
+is a one-time popup. If the first job-status check (the single non-blocking
+check `performX()` does - see above) wasn't terminal yet, the popup just
+says "check back shortly," and there was no actual way to check back short
+of Background Scripts (`checkJobStatus(ciSysId, jobId)`) or the Huawei
+Cloud console - not something an end user of this connector should ever
+need to do.
+
+**Design**: a 7th table, `HC Day-2 Action Log` (`ci`, `action`, `params`,
+`job_id`, `status`, `requested_by`, `requested_at`, `updated_at`,
+`error_message`) - operational data, not configuration, so it keeps
+Studio's default ACLs like `HC Discovery Run`/`HC Resource Sync State`
+rather than the write-restricted treatment `HC Cloud Account`/`HC Cloud
+Region`/`HC Connector Config` get (see `docs/ACL-SETUP.md` Step 6). Every
+`performX()` method now calls `_insertActionLog()` exactly once, at
+whichever exit point it reaches (HTTP failure / job `FAIL` / job `SUCCESS`
+/ job still running / no `job_id` at all) - always a fresh row, since each
+button click is an independent request. `checkJobStatus()` calls
+`_updateActionLogByJobId()` to move an existing row to a terminal status
+when it resolves - the same method already used ad hoc from Background
+Scripts, now also reused by a new public `pollPendingActionLogs()` method
+that re-checks every row still `requested`/`running`.
+
+**The actual mechanism that closes the gap** is a new Scheduled Script
+Execution, `scheduled-jobs/hc_connector_day2_job_poller.js` (same
+established pattern as `hc_connector_scheduled_sync.js`), calling
+`pollPendingActionLogs()` every 2 minutes. Only viable as a Scheduled Job,
+not a UI-session wait-and-poll loop, for the same `gs.sleep()` fencing
+reason documented above. Paired with a related list on the
+`cmdb_ci_vm_instance` form (`HC Day-2 Action Log` filtered by `ci = current`,
+same part of the form "Related Items"/"Alerts" already occupy) - an admin
+can now just refresh the CI form later and see the real outcome, no
+Background Scripts or Huawei Cloud console needed for the common case.
+
+**Real-PDI verified end to end**: clicked Attach Volume against the real
+sandbox instance/EVS volume, confirmed a fresh `HC Day-2 Action Log` row
+appeared immediately with `status=requested`/`running` and the real
+`job_id`/`params` (the volume UUID); ~90 seconds later (within the poller's
+2-minute interval, no manual `Execute Now` needed), the row's `status` had
+automatically updated to `success` with `updated_at` reflecting the actual
+poll time - confirming the Scheduled Job, `checkJobStatus()`'s log-update
+path, and the CI form's related list all work together exactly as designed,
+with zero Background Scripts or Huawei Cloud console visits needed during
+the test itself.
+
 ## Security model (target, Phase 1 partial)
 
 - No hardcoded AK/SK, passwords, webhook secrets, or real account/resource

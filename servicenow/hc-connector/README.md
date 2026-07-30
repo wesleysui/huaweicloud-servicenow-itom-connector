@@ -257,6 +257,18 @@ verified against the existing sandbox right now.
   end**: attach job reached `SUCCESS` (~3s), detach job reached `SUCCESS`
   (~2.5s), disk's final "available" state independently confirmed on the
   Huawei Cloud console.
+- **HC Day-2 Action Log** (a 7th table, `tables/hc_day2_action_log.schema.json`)
+  - closes a real gap found once all six actions worked: a UI Action's
+  result is a one-time popup, with no way to learn the final outcome if the
+  first job-status check wasn't terminal yet, short of Background Scripts
+  or the Huawei Cloud console. Every `performX()` call now logs a row;
+  `scheduled-jobs/hc_connector_day2_job_poller.js` (a new Scheduled Script
+  Execution, every 2 minutes) re-checks pending rows until they resolve;
+  a related list on the CI form shows the result. **Real-PDI verified end
+  to end**: an Attach Volume click produced a row within seconds
+  (`status=requested`/`running`), which the poller then flipped to
+  `success` on its own ~90 seconds later - no Background Scripts, no
+  Huawei Cloud console.
 
 See `docs/ARCHITECTURE.md`'s "Day-2 operations" section for the full
 design and `docs/INSTALL.md` Step 10 for setup/verification steps.

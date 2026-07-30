@@ -155,7 +155,13 @@ app). Attach/detach (`performAttach()`/`performDetach()` + two more UI
 Actions) followed the same path, extending the same GlideAjax bridge —
 **real-PDI verified end to end** too (attach job `SUCCESS` in ~3s, detach
 job `SUCCESS` in ~2.5s, disk's final "available" state independently
-confirmed on the Huawei Cloud console). See
+confirmed on the Huawei Cloud console). A 7th table, `HC Day-2 Action Log`,
+closes a real UX gap found once all six actions worked (a UI Action's
+result is a one-time popup) — every action now logs a row, a new
+Scheduled Job re-checks it every 2 minutes, and a related list on the CI
+form shows the outcome; **real-PDI verified end to end** too (a row
+appeared instantly, then flipped to `success` on its own ~90 seconds
+later, no Background Scripts or console needed). See
 ARCHITECTURE.md's "Day-2 operations" section for the full error-to-fix
 trail.
 

@@ -386,6 +386,57 @@ Requires Step 11 already deployed (`HcConnectorEcsLifecycleAjax` and the
    either case, so if you test against the system disk on a running
    instance, expect (and report) whatever real error Huawei's API returns.
 
+## Step 13 — See Day-2 action results without Background Scripts (🧑‍💻 manual admin config, optional but recommended, real-PDI verified end to end)
+
+Every UI Action in Steps 10–12 shows its result as a one-time popup — if
+the job wasn't done yet at the first check, that popup just says "check
+back shortly" with no way to actually check back except Background
+Scripts or the Huawei Cloud console. This step adds a real answer to
+"did it work?": a log table with a related list on the CI form, kept
+current by a periodic job.
+
+**Real-PDI verified**: clicked Attach Volume, confirmed a row appeared
+immediately with `status=requested`/`running`, and ~90 seconds later (well
+inside the poller's 2-minute interval) the row had automatically updated
+to `status=success` with a real `updated_at` timestamp - no manual
+`Execute Now`, no Background Scripts, no Huawei Cloud console needed.
+
+Requires Steps 10–12 already deployed (all six `performX()` methods now
+write to this table).
+
+1. Create the `HC Day-2 Action Log` table — follow `docs/ACL-SETUP.md`'s
+   Step 6.
+2. Redeploy `HcConnectorEcsLifecycleAction` (regenerate first, same
+   command as every prior step):
+   ```bash
+   node servicenow/hc-connector/scripts/build-script-include.js
+   ```
+   Paste `docs/generated/HcConnectorEcsLifecycleAction.generated.js` over
+   your existing Script Include — it now writes/updates this table from
+   every `performX()` method and `checkJobStatus()`.
+3. Create a new Scheduled Script Execution (`sysauto_script_list.do`),
+   same pattern as Step 9:
+   - **Name**: `HC Connector Day-2 Job Poller`
+   - **Run**: `Periodically`
+   - **Repeat Interval**: `2 minutes` (Day-2 jobs resolve in seconds to
+     tens of seconds per this project's own real-PDI evidence, so a short
+     interval is appropriate here — unlike Step 9's daily discovery sync)
+   - **Active**: checked
+   - **Script**: paste the entire contents of
+     `scheduled-jobs/hc_connector_day2_job_poller.js`
+4. Add a related list to the `cmdb_ci_vm_instance` form showing
+   `HC Day-2 Action Log` filtered by `ci = current record` (right-click the
+   form header > **Configure > Related Lists**, find `HC Day-2 Action Log`
+   under the `ci` relationship, move it to the selected side, save) - same
+   part of the form where "Related Items"/"Alerts" already show today.
+5. Click any lifecycle button (Stop/Resize/Attach/whatever) against a real
+   instance, then refresh the CI form - confirm a new row appears in the
+   related list with `status = requested/running`. Wait ~2 minutes (or
+   right-click the Scheduled Script Execution header > **Execute Now**
+   instead of waiting), refresh again, confirm the row's `status` updated
+   to `success` (or `fail`, with `error_message` populated) without you
+   running anything in Background Scripts.
+
 ## `servicenow/discovery/HuaweiECSDiscovery.js` still works standalone
 
 If you don't need multi-account/region support, `new
