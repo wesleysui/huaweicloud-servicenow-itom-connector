@@ -19,6 +19,31 @@
  * a real-PDI test found gs.sleep() is fenced (blocked) for custom scoped
  * apps on this instance, ruling out a blocking multi-attempt loop inside
  * one transaction. See that file's header comment for the full story.
+ *
+ * buildResizeRequestBody() below targets a DIFFERENT Huawei endpoint
+ * (per-server, not batch): POST /v1/{project_id}/cloudservers/{server_id}/resize
+ * - researched (WebSearch/WebFetch against Huawei's published API docs), not
+ * yet real-PDI verified. Documented hard prerequisite: the instance must
+ * already be SHUTOFF before resize is accepted - not enforced here or in the
+ * ServiceNow wrapper (this project's Day-2 code has consistently let
+ * Huawei's own API be the source of truth for real rejection-error shapes
+ * rather than guessing at pre-validation - see performAction()'s history in
+ * docs/ARCHITECTURE.md). Response shape is the same async {"job_id": "..."}
+ * as the batch actions above, reusing the same job-status-check mechanism.
+ *
+ * buildAttachRequestBody() targets Huawei's disk-attach endpoint (also
+ * researched, not real-PDI verified): POST /v1/{project_id}/cloudservers/
+ * {server_id}/attachvolume, confirmed via Huawei's published API docs
+ * (support.huaweicloud.com/api-ecs/ecs_02_0605.html) - `volumeId` is the
+ * only mandatory field; `volume_type`/`count`/`hw:passthrough` are real
+ * optional fields this project deliberately doesn't expose in v1 (no real
+ * need identified yet - add if one shows up, don't guess at it now).
+ * Detach (DELETE /v1/{project_id}/cloudservers/{server_id}/detachvolume/
+ * {volume_id}, confirmed via ecs_02_0606.html) takes no request body at
+ * all, just an optional `delete_flag=1` query parameter for a forced
+ * detach - so there's no corresponding buildDetachRequestBody() here;
+ * the ServiceNow wrapper builds that path/query directly, same as it
+ * already does for every endpoint's pathname.
  */
 
 var VALID_ACTIONS = ['start', 'stop', 'reboot'];
@@ -49,7 +74,39 @@ function buildActionRequestBody(action, serverId, opts) {
   return { reboot: { type: mode, servers: servers } };
 }
 
+/**
+ * @param {string} flavorRef - target Huawei ECS flavor ID (e.g. "s6.large.2")
+ * @param {{dryRun?: boolean}} [opts] - dryRun=true asks Huawei to validate without actually resizing
+ * @returns {Object} the JSON body for POST /v1/{project_id}/cloudservers/{server_id}/resize
+ */
+function buildResizeRequestBody(flavorRef, opts) {
+  if (!flavorRef) {
+    throw new Error('flavorRef is required');
+  }
+  opts = opts || {};
+  return { resize: { flavorRef: flavorRef }, dry_run: !!opts.dryRun };
+}
+
+/**
+ * @param {string} volumeId - Huawei EVS disk UUID to attach
+ * @param {{device?: string, dryRun?: boolean}} [opts] - device is an optional explicit mount point (e.g. "/dev/sdb"); omit to let Huawei auto-assign one
+ * @returns {Object} the JSON body for POST /v1/{project_id}/cloudservers/{server_id}/attachvolume
+ */
+function buildAttachRequestBody(volumeId, opts) {
+  if (!volumeId) {
+    throw new Error('volumeId is required');
+  }
+  opts = opts || {};
+  var volumeAttachment = { volumeId: volumeId };
+  if (opts.device) {
+    volumeAttachment.device = opts.device;
+  }
+  return { volumeAttachment: volumeAttachment, dry_run: !!opts.dryRun };
+}
+
 module.exports = {
   VALID_ACTIONS: VALID_ACTIONS,
-  buildActionRequestBody: buildActionRequestBody
+  buildActionRequestBody: buildActionRequestBody,
+  buildResizeRequestBody: buildResizeRequestBody,
+  buildAttachRequestBody: buildAttachRequestBody
 };

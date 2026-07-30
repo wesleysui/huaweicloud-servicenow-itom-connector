@@ -206,7 +206,7 @@ native forms + a UI Action, no custom GlideAjax/Jelly setup pages:
   Studio development for it). See `docs/ARCHITECTURE.md`'s "Setup
   automation & distribution packaging" section.
 
-## Day-2 operations (cross-cutting, new — real-PDI verified)
+## Day-2 operations (cross-cutting, new — start/stop/reboot/resize/attach/detach all real-PDI verified)
 
 The first Day-2 (write, not just read) capability in this project: ECS
 start/stop/reboot. Picked ahead of the remaining resource-coverage phases
@@ -232,6 +232,31 @@ verified against the existing sandbox right now.
   same "Run Sync Now" pattern, gated by
   `HcConnectorEcsLifecycleAction.isManaged()` so the buttons only appear on
   CIs this connector actually discovered.
+- **Resize** (`performResize()` on the same Script Include, plus a fourth
+  UI Action, `ui-actions/hc_vm_instance_resize.js`) — a different Huawei
+  endpoint (per-server `POST .../cloudservers/{server_id}/resize`, not the
+  batch action endpoint above), same job-status pattern, but needed this
+  project's first GlideAjax bridge (`service-graph/HcConnectorEcsLifecycleAjax.js`,
+  a thin client-callable wrapper kept separate so only `performResize()` is
+  exposed to client calls) since collecting the target flavor ID needs an
+  interactive `prompt()` with nowhere else to read it from. Huawei requires
+  the instance to already be stopped before resize — not pre-checked here,
+  same "let Huawei's own API surface the real error" choice already made
+  for start/stop/reboot. **Real-PDI verified end to end**: job reached
+  `SUCCESS` (~38s wall-clock), flavor change independently confirmed on the
+  Huawei Cloud console. Found and fixed a third scoped-app restriction along
+  the way: `AbstractAjaxProcessor` must be referenced as
+  `global.AbstractAjaxProcessor` from inside a scoped app.
+- **Attach/detach** (`performAttach()`/`performDetach()`, plus
+  `ui-actions/hc_vm_instance_{attach_volume,detach_volume}.js`) — two more
+  Huawei endpoints (`POST .../attachvolume`, `DELETE .../detachvolume/{volume_id}`,
+  the latter with no request body at all), both researched via WebFetch
+  against Huawei's published API docs. Extends the same
+  `HcConnectorEcsLifecycleAjax.js` bridge with `attach()`/`detach()`
+  methods rather than adding a second bridge. **Real-PDI verified end to
+  end**: attach job reached `SUCCESS` (~3s), detach job reached `SUCCESS`
+  (~2.5s), disk's final "available" state independently confirmed on the
+  Huawei Cloud console.
 
 See `docs/ARCHITECTURE.md`'s "Day-2 operations" section for the full
 design and `docs/INSTALL.md` Step 10 for setup/verification steps.

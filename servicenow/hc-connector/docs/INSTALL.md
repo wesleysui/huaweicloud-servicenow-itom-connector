@@ -280,6 +280,112 @@ method is reused directly, not duplicated).
    ```
    (both values are in the info message / log from step 6's first click).
 
+## Step 11 — Add resize (🧑‍💻 manual admin config, optional, real-PDI verified end to end)
+
+Adds a "Resize Instance" button. Unlike Start/Stop/Reboot, resize needs a
+value collected interactively from you (the target Huawei flavor ID) that a
+server-side-only UI Action has nowhere to read from — this step deploys
+this project's first GlideAjax bridge to make that possible.
+
+**Real-PDI verified**: against a real sandbox instance, Resize Instance
+returned a real `job_id` (`job_type: "resizeServer"`), the button showed the
+real in-progress status, a follow-up `checkJobStatus()` call confirmed
+`SUCCESS` (~38s wall-clock), and the instance's flavor was independently
+confirmed changed on the Huawei Cloud console. One real bug was found and
+fixed along the way: a first attempt failed with `AbstractAjaxProcessor
+undefined, maybe missing global qualifier` — a scoped app must reference
+the global `AbstractAjaxProcessor` class with a `global.` prefix; fixed in
+`HcConnectorEcsLifecycleAjax.js`. If your copy predates this fix, re-paste
+it — see step 2. Still untested: resizing a running (not-`SHUTOFF`)
+instance.
+
+Requires Step 10 already deployed (`HcConnectorEcsLifecycleAction` with
+`performResize()` — regenerate and redeploy it first if your copy predates
+this step).
+
+1. Regenerate to be sure you have the latest build (adds `performResize()`
+   to the generated Script Include; no new lib modules to inline for this
+   step):
+   ```bash
+   node servicenow/hc-connector/scripts/build-script-include.js
+   ```
+   Redeploy `docs/generated/HcConnectorEcsLifecycleAction.generated.js`
+   over your existing `HcConnectorEcsLifecycleAction` Script Include.
+2. In Studio, create a new Script Include named `HcConnectorEcsLifecycleAjax`.
+   Paste the **entire contents** of
+   `service-graph/HcConnectorEcsLifecycleAjax.js` directly — unlike the
+   orchestrators and `HcConnectorEcsLifecycleAction`, this one has no
+   `__HC_CONNECTOR_INLINED_LIB__` marker and needs no codegen step; it only
+   instantiates `HcConnectorEcsLifecycleAction` (a class, which works fine
+   across Script Includes without inlining). **Check "Client callable"** —
+   required for GlideAjax; without it, the client-side call in step 3
+   fails.
+3. Create one more UI Action on `cmdb_ci_vm_instance` (a 4th, alongside the
+   3 from Step 10 — Steps 11+12 together add 3 new ones: Resize, Attach
+   Volume, Detach Volume), from `ui-actions/hc_vm_instance_resize.js`:
+   - **Name**: Resize Instance, **Action name**: `hc_ecs_resize_instance`
+   - **Show insert**: unchecked; **Show update**: checked; **Form
+     button**: checked
+   - **Client**: **checked** (unlike the other three — it needs `prompt()`
+     for the target flavor ID) — **OnClick**: `resizeInstance()`
+   - **Condition**: same as the other three,
+     `new HcConnectorEcsLifecycleAction().isManaged(current.getUniqueValue())`
+4. First **stop the instance** via Stop Instance (Step 10) — Huawei
+   documents resize as only valid against an already-`SHUTOFF` instance;
+   this code does not pre-check that for you, so resizing a running
+   instance is expected to fail with whatever error Huawei's API actually
+   returns (untested — report back the real error text if you hit this).
+5. Click **Resize Instance**. Enter a real target flavor ID for your
+   sandbox project/region (look up valid flavor IDs on the Huawei Cloud
+   console — not every flavor is a valid resize target from every source
+   flavor). Confirm the info message, then confirm on the Huawei Cloud
+   console directly that the instance's flavor actually changed — same
+   "ServiceNow said OK" vs. "the cloud actually did it" distinction Step
+   10 already established for start/stop.
+
+## Step 12 — Add attach/detach volume (🧑‍💻 manual admin config, optional, real-PDI verified end to end)
+
+Adds "Attach Volume"/"Detach Volume" buttons, extending the same GlideAjax
+bridge Step 11 deployed. **Real-PDI verified**: against a real EVS volume
+(get one via `terraform apply -target=huaweicloud_evs_volume.catalog_evs`
+if you don't already have an unattached one), Attach Volume's job reached
+`SUCCESS` (~3s wall-clock), Detach Volume's job reached `SUCCESS` (~2.5s),
+and the disk's final "available" (unattached) state was independently
+confirmed on the Huawei Cloud console.
+
+Requires Step 11 already deployed (`HcConnectorEcsLifecycleAjax` and the
+`HcConnectorEcsLifecycleAction` regenerated with `performAttach()`/
+`performDetach()`).
+
+1. Regenerate and redeploy `HcConnectorEcsLifecycleAction` (same command
+   as Step 11):
+   ```bash
+   node servicenow/hc-connector/scripts/build-script-include.js
+   ```
+2. Redeploy `HcConnectorEcsLifecycleAjax` — re-paste the current contents
+   of `service-graph/HcConnectorEcsLifecycleAjax.js` (it now has
+   `attach()`/`detach()` methods alongside `resize()`).
+3. Create two more UI Actions on `cmdb_ci_vm_instance`:
+
+   | Name | Action name | Script | Client | OnClick |
+   |---|---|---|---|---|
+   | Attach Volume | `hc_ecs_attach_volume` | `ui-actions/hc_vm_instance_attach_volume.js` | checked | `attachVolume()` |
+   | Detach Volume | `hc_ecs_detach_volume` | `ui-actions/hc_vm_instance_detach_volume.js` | checked | `detachVolume()` |
+
+   Same **Show insert**/**Show update**/**Form button**/**Condition**
+   settings as every other lifecycle UI Action (see Step 10).
+4. You'll need a real EVS disk UUID to test with — either one already
+   provisioned by `terraform/main.tf` (Phase 2C's `huaweicloud_evs_volume`)
+   or one created directly on the Huawei Cloud console. Click **Attach
+   Volume**, enter that disk's UUID, confirm the info message, then
+   confirm on the Huawei Cloud console that the disk actually shows as
+   attached to this instance.
+5. Click **Detach Volume** with the same disk UUID. Huawei documents that
+   the system disk can only be detached while the instance is stopped, but
+   data disks can be detached live — this code doesn't check or enforce
+   either case, so if you test against the system disk on a running
+   instance, expect (and report) whatever real error Huawei's API returns.
+
 ## `servicenow/discovery/HuaweiECSDiscovery.js` still works standalone
 
 If you don't need multi-account/region support, `new

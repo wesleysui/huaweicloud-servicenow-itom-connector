@@ -894,12 +894,118 @@ already-stopped instance (or `start` on an already-running one) - Huawei's
 API is expected to reject this, not silently no-op, and this code doesn't
 special-case it.
 
-**Deliberately out of scope for this slice**: resize/attach/detach (higher
-blast-radius operations, left for a later Day-2 pass once start/stop/
-reboot's real error handling is proven), and any Flow Designer/
+**Deliberately out of scope for this slice**: any Flow Designer/
 IntegrationHub wrapping (the UI Action is the minimal real capability;
 wiring it into a Flow Designer action for use in Change/Request workflows
 is additive and doesn't change anything built here).
+
+### Resize (added after start/stop/reboot, real-PDI verified end to end)
+
+Targets a different Huawei endpoint than the batch actions above - per-server,
+not batch: `POST /v1/{project_id}/cloudservers/{server_id}/resize`, request
+body `{"resize": {"flavorRef": "..."}, "dry_run": false}` (built by
+`lib/ecsLifecycleAction.js`'s `buildResizeRequestBody()`, researched against
+Huawei's published docs, not guessed). Huawei documents a hard prerequisite -
+the instance must already be `SHUTOFF` - which this code does **not**
+pre-check, the same choice already made for start/stop/reboot: let Huawei's
+own API surface the real rejection-error shape via real-PDI testing, rather
+than guessing at pre-validation logic that might not match what Huawei
+actually returns.
+
+`HcConnectorEcsLifecycleAction.performResize(ciSysId, flavorRef, opts)`
+reuses everything else already built for start/stop/reboot: `_resolveContext()`
+for account/region, `HuaweiECSDiscovery._sign()` for signing, and the same
+single-check `_extractJobId()`/`_fetchJobStatus()` job-status pattern (no
+`gs.sleep()`, for the same fencing reason documented above) - the response is
+the same async `{"job_id": "..."}` shape.
+
+**Needs a GlideAjax bridge, the project's first**, because unlike
+start/stop/reboot, resize needs a value collected interactively from the
+admin (the target flavor ID) with nowhere on the form to read it from. A new
+thin, client-callable Script Include, `HcConnectorEcsLifecycleAjax.js`,
+wraps just `performResize()` - deliberately kept separate from
+`HcConnectorEcsLifecycleAction` itself so marking it client-callable doesn't
+also expose `performAction()`/`checkJobStatus()` to client calls. The
+"Resize Instance" UI Action (`ui-actions/hc_vm_instance_resize.js`) is
+`Client: true` (the other three lifecycle UI Actions aren't), prompts for
+the flavor ID via `prompt()`, and calls `HcConnectorEcsLifecycleAjax.resize()`
+via `GlideAjax`.
+
+**First real-PDI attempt found a third scoped-app platform restriction**:
+clicking Resize Instance failed with `AbstractAjaxProcessor undefined, maybe
+missing global qualifier`. `AbstractAjaxProcessor` lives in the global
+scope, and a scoped app must reference global-scope classes with an explicit
+`global.` prefix - `Object.extendsObject(AbstractAjaxProcessor, {...})`
+doesn't resolve inside a scoped script; it has to be
+`Object.extendsObject(global.AbstractAjaxProcessor, {...})`. Fixed in
+`HcConnectorEcsLifecycleAjax.js`. A different restriction than the
+`gs.sleep()` fencing found earlier in this same feature, but the same
+category: a real scope-boundary wall, not a guess - confirmed by the exact
+error text, not inferred.
+
+**Real-PDI verified end to end**, against a real sandbox instance
+(`wsl-manual-smoke-test-1785156474`, stopped first via Stop Instance): Resize
+Instance returned `HTTP 200` with a real `job_id`
+(`job_type: "resizeServer"`), the button's own info message showed the real
+in-progress status (`... status: RUNNING. Not yet confirmed complete ...`),
+and a follow-up `checkJobStatus()` call confirmed the job reached `SUCCESS`
+(~38s wall-clock, `begin_time` to `end_time`) with the correct `server_id`
+in `entities`. Independently confirmed on the Huawei Cloud console too - the
+instance's flavor had actually changed to the requested target, not just
+"ServiceNow said OK." Still untested: the real error shape for resizing a
+running (not-`SHUTOFF`) instance.
+
+### Attach/detach (added alongside resize, real-PDI verified end to end)
+
+The last two Day-2 ops originally deferred as "higher blast-radius,
+later." Two more Huawei endpoints, both researched via WebFetch against
+Huawei's published API docs (`support.huaweicloud.com/api-ecs/ecs_02_0605.html`
+for attach, `ecs_02_0606.html` for detach), not guessed:
+
+- **Attach**: `POST /v1/{project_id}/cloudservers/{server_id}/attachvolume`,
+  request body `{"volumeAttachment": {"volumeId": "..."}, "dry_run": false}`
+  (`volumeId` is the only mandatory field; `volume_type`/`count`/
+  `hw:passthrough` are real optional fields this project deliberately
+  doesn't expose yet - no real need identified, don't guess at it). Built
+  by `lib/ecsLifecycleAction.js`'s `buildAttachRequestBody()`.
+- **Detach**: `DELETE /v1/{project_id}/cloudservers/{server_id}/detachvolume/{volume_id}`
+  - no request body at all, just an optional `?delete_flag=1` query
+  parameter for a forced detach. No corresponding
+  `buildDetachRequestBody()` in the pure lib since there's no body to
+  build - `performDetach()` builds the path/query directly, the same way
+  every endpoint's pathname is already built in the wrapper. The query
+  parameter is included in `_sign()`'s `queryParams` too (Huawei's
+  signature covers the actual query string sent, confirmed via the same
+  `queryParams` mechanism `HuaweiECSDiscovery.fetchECSInstances()` already
+  uses for `limit`/`offset`).
+
+Both target the same ECS CI as every other Day-2 op (`_resolveContext(ciSysId)`
+- `volumeId` is a separate free-form input, same shape as resize's
+`flavorRef`, not a lookup against a separate EVS CI) and reuse the same
+signing/job-status machinery. Huawei documents that the system disk can
+only be detached while stopped, while data disks can be detached live -
+not pre-checked here, same "let Huawei's own API surface the real error"
+choice as resize's `SHUTOFF` prerequisite.
+
+Reuses the same GlideAjax bridge `HcConnectorEcsLifecycleAjax.js` (now with
+`attach()`/`detach()` methods alongside `resize()`) and adds two more
+`Client: true` UI Actions, `ui-actions/hc_vm_instance_{attach_volume,detach_volume}.js`.
+No force-detach (`?delete_flag=1`) toggle exposed in the UI yet - same
+"build the capability, don't expose every knob as a button" choice already
+made for HARD stop/reboot.
+
+**Real-PDI verified end to end**, against a real EVS volume attached/detached
+to/from the same sandbox instance (`terraform apply -target=huaweicloud_evs_volume.catalog_evs`
+was used to get a real, unattached disk to test against): Attach Volume
+returned a real `job_id` (`job_type: "attachVolume"`), a follow-up
+`checkJobStatus()` confirmed `SUCCESS` (~3s wall-clock); Detach Volume
+likewise returned a job (`job_type: "detachVolume"`), confirmed `SUCCESS`
+(~2.5s). Independently confirmed on the Huawei Cloud console too - the
+disk's final state was "available" (unattached), matching attach-then-detach
+having actually happened in that order, not just two "success" messages.
+Same `AbstractAjaxProcessor`/`global.` fix from resize applied here too
+(same GlideAjax bridge, same file), so this feature's first real-PDI attempt
+went straight through with no new errors.
 
 ## Security model (target, Phase 1 partial)
 

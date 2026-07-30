@@ -79,7 +79,7 @@ var PAIRS = [
     label: 'ECS lifecycle action-type/job-status tokens: ecsLifecycleAction.js -> HcConnectorEcsLifecycleAction.js',
     libFile: 'servicenow/hc-connector/lib/ecsLifecycleAction.js',
     mirrorFile: 'servicenow/hc-connector/service-graph/HcConnectorEcsLifecycleAction.js',
-    pattern: /os-start|os-stop|reboot|SOFT|HARD|SUCCESS|FAIL/g
+    pattern: /os-start|os-stop|reboot|SOFT|HARD|SUCCESS|FAIL|flavorRef|dry_run|volumeAttachment|volumeId/g
   }
 ];
 

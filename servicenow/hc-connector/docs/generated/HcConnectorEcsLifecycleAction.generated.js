@@ -67,6 +67,33 @@
 // latent risk in every Discovery file's gs.sleep()-based retry/backoff
 // (never yet triggered by a real retryable HTTP status, so never
 // real-PDI-exercised either - flagged, not fixed preemptively here).
+//
+// performResize() (added after start/stop/reboot were real-PDI verified)
+// targets a different, per-server Huawei endpoint (POST /v1/{project_id}/
+// cloudservers/{server_id}/resize, not the batch .../cloudservers/action
+// used above) but reuses everything else: _resolveContext() for account/
+// region, disco._sign() for signing, _extractJobId()/_fetchJobStatus() for
+// the same single-check job-status pattern. Huawei documents a hard
+// prerequisite (instance must already be SHUTOFF) that this code does NOT
+// pre-check - consistent with how performAction() above was built (let
+// Huawei's own API surface the real rejection-error shape, then fix based
+// on what real-PDI testing actually shows, rather than guessing at
+// pre-validation logic). Not yet real-PDI verified.
+//
+// performAttach()/performDetach() (added alongside resize) target Huawei's
+// disk-attach/detach endpoints, researched the same way (WebSearch/WebFetch
+// against Huawei's published docs, not guessed): POST /v1/{project_id}/
+// cloudservers/{server_id}/attachvolume (body built by
+// lib/ecsLifecycleAction.js's buildAttachRequestBody(), mirrored below same
+// as the others) and DELETE /v1/{project_id}/cloudservers/{server_id}/
+// detachvolume/{volume_id} (no request body at all - just an optional
+// ?delete_flag=1 query param for a forced detach, so there's no
+// buildDetachRequestBody() to mirror; the wrapper builds that path/query
+// directly). Both return the same async {"job_id": "..."} shape, reusing
+// _extractJobId()/_fetchJobStatus(). Not yet real-PDI verified. Both act on
+// the same ECS CI (_resolveContext(ciSysId) - the target is still "this VM
+// instance", volumeId is a separate free-form input, same shape as
+// performResize()'s flavorRef), not a lookup against a separate EVS CI.
 
 // ---- inlined from lib/credentialProvider.js (do not hand-edit here - edit the source and regenerate) ----
 /**
@@ -282,6 +309,258 @@ HcConnectorEcsLifecycleAction.prototype = {
     },
 
     // ------------------------------------------------------------------
+    // Resize - same account/region/credential resolution and signing as
+    // performAction() above, but a different Huawei endpoint (per-server,
+    // not batch) and a different request-body shape. See this file's header
+    // comment for the SHUTOFF prerequisite and why it isn't pre-checked here.
+    // @param ciSysId - cmdb_ci_vm_instance sys_id
+    // @param flavorRef - target Huawei flavor ID (e.g. "s6.large.2")
+    // @param opts - { dryRun: boolean }
+    // @returns same {status, body, jobId, jobStatus} shape as performAction()
+    // ------------------------------------------------------------------
+    performResize: function(ciSysId, flavorRef, opts) {
+        var ctx = this._resolveContext(ciSysId);
+        if (!ctx) {
+            throw new Error('CI ' + ciSysId + ' has no active HC Resource Sync State row for resource_type=ecs - not managed by this connector');
+        }
+        if (!flavorRef) {
+            throw new Error('flavorRef is required');
+        }
+
+        var provider = createCredentialProvider(ctx.account.auth_mode, {
+            propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
+            accountId: ctx.account.account_id
+        });
+        var credentials = provider.getCredentials();
+
+        var disco = new HuaweiECSDiscovery({
+            region: ctx.region.region,
+            projectId: ctx.region.project_id,
+            accessKey: credentials.accessKey,
+            secretKey: credentials.secretKey
+        });
+
+        var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
+        var pathname = '/v1/' + ctx.region.project_id + '/cloudservers/' + ctx.nativeKey + '/resize';
+        var body = JSON.stringify(this._buildResizeRequestBody(flavorRef, opts));
+
+        var signed = disco._sign({ method: 'POST', pathname: pathname, host: host, body: body });
+
+        var request = new sn_ws.RESTMessageV2();
+        request.setHttpMethod('POST');
+        request.setEndpoint('https://' + host + pathname);
+        request.setRequestHeader('Content-Type', signed['Content-Type']);
+        request.setRequestHeader('X-Sdk-Date', signed['X-Sdk-Date']);
+        request.setRequestHeader('Authorization', signed['Authorization']);
+        request.setRequestHeader('host', host);
+        request.setRequestBody(body);
+
+        var response = request.execute();
+        var status = response.getStatusCode();
+        var responseBody = response.getBody();
+
+        if (status < 200 || status >= 300) {
+            gs.error('[HcConnectorEcsLifecycleAction] resize failed for CI ' + ciSysId +
+                ' (server ' + ctx.nativeKey + ' -> ' + flavorRef + '): ' + status + ' - ' + responseBody);
+            throw new Error('ECS resize action failed: HTTP ' + status + ' - ' + responseBody);
+        }
+
+        gs.info('[HcConnectorEcsLifecycleAction] resize issued for CI ' + ciSysId +
+            ' (server ' + ctx.nativeKey + ' -> ' + flavorRef + '): HTTP ' + status + ' - ' + responseBody);
+
+        var jobId = this._extractJobId(responseBody);
+        if (!jobId) {
+            return { status: status, body: responseBody, jobId: null, jobStatus: null };
+        }
+
+        var jobResult = this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        if (jobResult && jobResult.status === 'FAIL') {
+            gs.error('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' FAILED for CI ' + ciSysId +
+                ': ' + JSON.stringify(jobResult));
+            throw new Error('ECS resize action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+        }
+        if (jobResult && jobResult.status === 'SUCCESS') {
+            gs.info('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
+        }
+
+        var observedStatus = jobResult ? jobResult.status : 'UNKNOWN';
+        gs.info('[HcConnectorEcsLifecycleAction] resize job ' + jobId + ' for CI ' + ciSysId +
+            ' not yet terminal at first check (status=' + observedStatus + ') - not treated as an error, call ' +
+            'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        return { status: status, body: responseBody, jobId: jobId, jobStatus: observedStatus };
+    },
+
+    // ------------------------------------------------------------------
+    // Attach an EVS disk to this ECS instance. Same account/region/
+    // credential resolution and signing as performAction()/performResize()
+    // above, a different Huawei endpoint and request-body shape.
+    // @param ciSysId - cmdb_ci_vm_instance sys_id (the target server)
+    // @param volumeId - Huawei EVS disk UUID to attach
+    // @param opts - { device: string, dryRun: boolean }
+    // @returns same {status, body, jobId, jobStatus} shape as performAction()
+    // ------------------------------------------------------------------
+    performAttach: function(ciSysId, volumeId, opts) {
+        var ctx = this._resolveContext(ciSysId);
+        if (!ctx) {
+            throw new Error('CI ' + ciSysId + ' has no active HC Resource Sync State row for resource_type=ecs - not managed by this connector');
+        }
+        if (!volumeId) {
+            throw new Error('volumeId is required');
+        }
+
+        var provider = createCredentialProvider(ctx.account.auth_mode, {
+            propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
+            accountId: ctx.account.account_id
+        });
+        var credentials = provider.getCredentials();
+
+        var disco = new HuaweiECSDiscovery({
+            region: ctx.region.region,
+            projectId: ctx.region.project_id,
+            accessKey: credentials.accessKey,
+            secretKey: credentials.secretKey
+        });
+
+        var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
+        var pathname = '/v1/' + ctx.region.project_id + '/cloudservers/' + ctx.nativeKey + '/attachvolume';
+        var body = JSON.stringify(this._buildAttachRequestBody(volumeId, opts));
+
+        var signed = disco._sign({ method: 'POST', pathname: pathname, host: host, body: body });
+
+        var request = new sn_ws.RESTMessageV2();
+        request.setHttpMethod('POST');
+        request.setEndpoint('https://' + host + pathname);
+        request.setRequestHeader('Content-Type', signed['Content-Type']);
+        request.setRequestHeader('X-Sdk-Date', signed['X-Sdk-Date']);
+        request.setRequestHeader('Authorization', signed['Authorization']);
+        request.setRequestHeader('host', host);
+        request.setRequestBody(body);
+
+        var response = request.execute();
+        var status = response.getStatusCode();
+        var responseBody = response.getBody();
+
+        if (status < 200 || status >= 300) {
+            gs.error('[HcConnectorEcsLifecycleAction] attach failed for CI ' + ciSysId +
+                ' (server ' + ctx.nativeKey + ' <- volume ' + volumeId + '): ' + status + ' - ' + responseBody);
+            throw new Error('ECS attach action failed: HTTP ' + status + ' - ' + responseBody);
+        }
+
+        gs.info('[HcConnectorEcsLifecycleAction] attach issued for CI ' + ciSysId +
+            ' (server ' + ctx.nativeKey + ' <- volume ' + volumeId + '): HTTP ' + status + ' - ' + responseBody);
+
+        var jobId = this._extractJobId(responseBody);
+        if (!jobId) {
+            return { status: status, body: responseBody, jobId: null, jobStatus: null };
+        }
+
+        var jobResult = this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        if (jobResult && jobResult.status === 'FAIL') {
+            gs.error('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' FAILED for CI ' + ciSysId +
+                ': ' + JSON.stringify(jobResult));
+            throw new Error('ECS attach action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+        }
+        if (jobResult && jobResult.status === 'SUCCESS') {
+            gs.info('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
+        }
+
+        var attachObservedStatus = jobResult ? jobResult.status : 'UNKNOWN';
+        gs.info('[HcConnectorEcsLifecycleAction] attach job ' + jobId + ' for CI ' + ciSysId +
+            ' not yet terminal at first check (status=' + attachObservedStatus + ') - not treated as an error, call ' +
+            'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        return { status: status, body: responseBody, jobId: jobId, jobStatus: attachObservedStatus };
+    },
+
+    // ------------------------------------------------------------------
+    // Detach an EVS disk from this ECS instance. No request body at all
+    // (see this file's header comment) - just an optional ?delete_flag=1
+    // query param for a forced detach, included in the signed queryParams
+    // too (Huawei's signature covers the actual query string sent).
+    // @param ciSysId - cmdb_ci_vm_instance sys_id (the target server)
+    // @param volumeId - Huawei EVS disk UUID to detach
+    // @param opts - { force: boolean }
+    // @returns same {status, body, jobId, jobStatus} shape as performAction()
+    // ------------------------------------------------------------------
+    performDetach: function(ciSysId, volumeId, opts) {
+        var ctx = this._resolveContext(ciSysId);
+        if (!ctx) {
+            throw new Error('CI ' + ciSysId + ' has no active HC Resource Sync State row for resource_type=ecs - not managed by this connector');
+        }
+        if (!volumeId) {
+            throw new Error('volumeId is required');
+        }
+        opts = opts || {};
+
+        var provider = createCredentialProvider(ctx.account.auth_mode, {
+            propertyReader: function(name) { return gs.getProperty(gs.getCurrentScopeName() + '.' + name); },
+            accountId: ctx.account.account_id
+        });
+        var credentials = provider.getCredentials();
+
+        var disco = new HuaweiECSDiscovery({
+            region: ctx.region.region,
+            projectId: ctx.region.project_id,
+            accessKey: credentials.accessKey,
+            secretKey: credentials.secretKey
+        });
+
+        var host = 'ecs.' + ctx.region.region + '.myhuaweicloud.com';
+        var pathname = '/v1/' + ctx.region.project_id + '/cloudservers/' + ctx.nativeKey + '/detachvolume/' + volumeId;
+        var queryParams = opts.force ? { delete_flag: '1' } : {};
+        var queryString = opts.force ? '?delete_flag=1' : '';
+
+        var signed = disco._sign({ method: 'DELETE', pathname: pathname, host: host, queryParams: queryParams });
+
+        var request = new sn_ws.RESTMessageV2();
+        request.setHttpMethod('DELETE');
+        request.setEndpoint('https://' + host + pathname + queryString);
+        request.setRequestHeader('Content-Type', signed['Content-Type']);
+        request.setRequestHeader('X-Sdk-Date', signed['X-Sdk-Date']);
+        request.setRequestHeader('Authorization', signed['Authorization']);
+        request.setRequestHeader('host', host);
+
+        var response = request.execute();
+        var status = response.getStatusCode();
+        var responseBody = response.getBody();
+
+        if (status < 200 || status >= 300) {
+            gs.error('[HcConnectorEcsLifecycleAction] detach failed for CI ' + ciSysId +
+                ' (server ' + ctx.nativeKey + ' -> volume ' + volumeId + '): ' + status + ' - ' + responseBody);
+            throw new Error('ECS detach action failed: HTTP ' + status + ' - ' + responseBody);
+        }
+
+        gs.info('[HcConnectorEcsLifecycleAction] detach issued for CI ' + ciSysId +
+            ' (server ' + ctx.nativeKey + ' -> volume ' + volumeId + '): HTTP ' + status + ' - ' + responseBody);
+
+        var jobId = this._extractJobId(responseBody);
+        if (!jobId) {
+            return { status: status, body: responseBody, jobId: null, jobStatus: null };
+        }
+
+        var jobResult = this._fetchJobStatus(disco, host, ctx.region.project_id, jobId);
+        if (jobResult && jobResult.status === 'FAIL') {
+            gs.error('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' FAILED for CI ' + ciSysId +
+                ': ' + JSON.stringify(jobResult));
+            throw new Error('ECS detach action was accepted (HTTP ' + status + ') but job ' + jobId +
+                ' failed: ' + (jobResult.fail_reason || jobResult.message || JSON.stringify(jobResult)));
+        }
+        if (jobResult && jobResult.status === 'SUCCESS') {
+            gs.info('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' SUCCESS for CI ' + ciSysId);
+            return { status: status, body: responseBody, jobId: jobId, jobStatus: 'SUCCESS' };
+        }
+
+        var detachObservedStatus = jobResult ? jobResult.status : 'UNKNOWN';
+        gs.info('[HcConnectorEcsLifecycleAction] detach job ' + jobId + ' for CI ' + ciSysId +
+            ' not yet terminal at first check (status=' + detachObservedStatus + ') - not treated as an error, call ' +
+            'checkJobStatus(ciSysId, jobId) again later to see if it finished');
+        return { status: status, body: responseBody, jobId: jobId, jobStatus: detachObservedStatus };
+    },
+
+    // ------------------------------------------------------------------
     // Public: check a previously-issued job's current status again, e.g.
     // from a Background Script, since performAction() only checks once
     // (see this file's header comment for why - gs.sleep() is fenced in
@@ -409,6 +688,36 @@ HcConnectorEcsLifecycleAction.prototype = {
             return { 'os-stop': { servers: servers, type: mode } };
         }
         return { reboot: { type: mode, servers: servers } };
+    },
+
+    // ------------------------------------------------------------------
+    // Mirrors lib/ecsLifecycleAction.js's buildResizeRequestBody() inline.
+    // Keep in sync - covered by check-mirror-drift.js's ninth PAIRS entry.
+    // ------------------------------------------------------------------
+    _buildResizeRequestBody: function(flavorRef, opts) {
+        if (!flavorRef) {
+            throw new Error('flavorRef is required');
+        }
+        opts = opts || {};
+        return { resize: { flavorRef: flavorRef }, dry_run: !!opts.dryRun };
+    },
+
+    // ------------------------------------------------------------------
+    // Mirrors lib/ecsLifecycleAction.js's buildAttachRequestBody() inline.
+    // Keep in sync - covered by check-mirror-drift.js's ninth PAIRS entry.
+    // No corresponding mirror for detach - it has no request body (see this
+    // file's header comment).
+    // ------------------------------------------------------------------
+    _buildAttachRequestBody: function(volumeId, opts) {
+        if (!volumeId) {
+            throw new Error('volumeId is required');
+        }
+        opts = opts || {};
+        var volumeAttachment = { volumeId: volumeId };
+        if (opts.device) {
+            volumeAttachment.device = opts.device;
+        }
+        return { volumeAttachment: volumeAttachment, dry_run: !!opts.dryRun };
     },
 
     type: 'HcConnectorEcsLifecycleAction'

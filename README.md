@@ -117,7 +117,7 @@ this table stays intentionally short.
 | Terraform provisioning | ✅ 12 resource types (VPC/SG/ECS/EVS/EIP/ELB/RDS/OBS/Route Table/NAT Gateway/VPC Peering/CCE), all apply+destroy verified against a real sandbox | Remote state backend, Day-2 ops beyond create/destroy |
 | CMDB Discovery | ✅ 10 resource types, multi-account/region, idempotent, real-PDI verified — see the productization row below | Pod/node/namespace-level Kubernetes visibility (needs a MID Server, see below) |
 | Event Management | ✅ Webhook → Event Rule → severity-mapped, CI-bound alert, real-PDI verified | HMAC/signature verification, broader metric coverage, incident auto-creation |
-| Day-2 operations | ✅ ECS start/stop/reboot with real async job-status tracking, real-PDI verified end to end (see below) | resize/attach/detach; Flow Designer/IntegrationHub wrapping for Change/Request workflows |
+| Day-2 operations | ✅ ECS start/stop/reboot/resize/attach/detach, all real-PDI verified end to end (see below) | Flow Designer/IntegrationHub wrapping for Change/Request workflows |
 | Setup automation | ✅ Native table forms + a "Run Sync Now" UI Action + periodic scheduled sync, real-PDI verified | — |
 | Multi-account auth | 🚧 AK/SK (dev/compat mode) real-PDI verified; production-grade IAM Agency is an interface stub | Needs a real multi-account Huawei Organizations setup to build/verify against |
 | Packaging / distribution | 🚧 Manual install only (`docs/INSTALL.md`) | One-click install: Store publish needs TPP enrollment (blocked), Update Set doesn't capture app scope (proven not viable); plan is Application Repository Mode once feature-complete |
@@ -144,8 +144,20 @@ already-deleted instance) doesn't look identical to a real success. Found
 and fixed two real ServiceNow platform issues along the way — including a
 scoped-app restriction on `gs.sleep()` that also applied to every
 Discovery file's retry logic, fixed proactively across all seven once
-confirmed. See ARCHITECTURE.md's "Day-2 operations" section for the full
-error-to-fix trail.
+confirmed. Resize (`performResize()` + a "Resize Instance" UI Action) was
+added afterward, reusing the same job-status pattern but needing this
+project's first GlideAjax bridge to collect the target flavor ID
+interactively — **real-PDI verified end to end** (job reached `SUCCESS`,
+flavor change independently confirmed on the Huawei Cloud console), after
+finding and fixing a third scoped-app restriction (`AbstractAjaxProcessor`
+must be referenced as `global.AbstractAjaxProcessor` from inside a scoped
+app). Attach/detach (`performAttach()`/`performDetach()` + two more UI
+Actions) followed the same path, extending the same GlideAjax bridge —
+**real-PDI verified end to end** too (attach job `SUCCESS` in ~3s, detach
+job `SUCCESS` in ~2.5s, disk's final "available" state independently
+confirmed on the Huawei Cloud console). See
+ARCHITECTURE.md's "Day-2 operations" section for the full error-to-fix
+trail.
 
 ## Quick start
 
@@ -162,7 +174,7 @@ git clone <this-repo>
 cd huaweicloud-servicenow-itom-connector
 
 npm install
-npm test                              # 312 tests: pure mapping/resilience/signing/crypto math, full control-flow integration tests, and HC ITOM Connector logic across every resource type + Day-2 ops
+npm test                              # 319 tests: pure mapping/resilience/signing/crypto math, full control-flow integration tests, and HC ITOM Connector logic across every resource type + Day-2 ops
 
 cd terraform
 terraform init -backend=false
