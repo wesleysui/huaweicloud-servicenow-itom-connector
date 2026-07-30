@@ -437,6 +437,76 @@ write to this table).
    to `success` (or `fail`, with `error_message` populated) without you
    running anything in Background Scripts.
 
+## Step 14 — Populate CI hardware fields: CPUs/Disks/Memory/Network adapters (🧑‍💻 manual admin config, optional, real-PDI verified)
+
+`cmdb_ci_vm_instance`'s `cpus`/`disks_size`/`memory`/`nics` fields have
+always been empty for Huawei ECS CIs discovered by this project - this
+step fixes all four. Requires Step 5/6 (ECS Discovery + `HcConnectorEcsSync`
+already deployed) and EVS Discovery + `HcConnectorEvsSync` already deployed
+(Phase 2C - see `docs/ARCHITECTURE.md`'s Phase 2C section; this project
+doesn't have a dedicated numbered install step for EVS's own first-time
+setup yet, only this enrichment on top of it).
+
+1. Regenerate (adds `_buildFlavorLookup()`/`_fetchFlavorDetails()` to
+   `HcConnectorEcsSync`'s inlined libs is NOT needed here - those live
+   directly in `HuaweiECSDiscovery.js` - but `HcConnectorEcsSync` itself
+   changed, and `HcConnectorEvsSync` now inlines a new lib,
+   `diskAggregation.js`):
+   ```bash
+   node servicenow/hc-connector/scripts/build-script-include.js
+   ```
+2. Redeploy `HuaweiECSDiscovery` - paste `servicenow/discovery/HuaweiECSDiscovery.js`'s
+   full contents directly (this one is never codegen'd - it's pasted as-is,
+   same as always).
+3. Redeploy `HcConnectorEcsSync` - paste
+   `docs/generated/HcConnectorEcsSync.generated.js`'s full contents.
+4. Redeploy `HcConnectorEvsSync` - paste
+   `docs/generated/HcConnectorEvsSync.generated.js`'s full contents (now
+   6 modules inlined instead of 5).
+5. Run `new HcConnectorEcsSync().runAll();` from Background Scripts.
+   Refresh a real ECS CI's form, confirm **CPUs**/**Memory (MB)**/
+   **Network adapters** are populated.
+6. Run `new HcConnectorEvsSync().runAll();` from Background Scripts.
+   Refresh the same CI form, confirm **Disks**/**Disks size (GB)** are
+   populated too.
+
+**Real-PDI verified**, but only against the simplest real case this
+sandbox has available - flag these as genuinely untested, not just
+theoretically fine, before relying on them in a less trivial environment:
+
+- **Network adapters**: verified showing `1` correctly, but the instance
+  tested had no EIP bound at the time - the specific bug this logic exists
+  to avoid (double-counting a NIC that has both a fixed and floating IP)
+  was never actually exercised against a real EIP-bound instance, only
+  covered by unit tests with synthetic data.
+- **CPUs/Memory**: verified with exactly one instance / one flavor id -
+  `_buildFlavorLookup()`'s dedup-by-flavor-id logic is unverified against a
+  real batch containing two or more distinct flavors (with only one flavor
+  in play, deduping and not-deduping are indistinguishable). Also untested:
+  the real error shape when the flavor lookup itself fails (wrong
+  permission, unknown flavor id) - `_fetchFlavorDetails()` degrades
+  gracefully by design (logs a warning, leaves that CI's cpus/memory
+  unset), but that path has never actually fired.
+- **Disks**: verified with exactly one volume attached to one instance -
+  the summing logic for multiple volumes on one instance is unit-tested
+  but not real-PDI exercised, and neither is the "EVS syncs before the ECS
+  CI exists yet, self-heals on a later run" ordering case.
+- **Open question, not yet resolved**: whether Huawei's EVS volume list
+  includes an instance's system/root disk or only extra data disks.
+  `Disks: 1` in this session's test corresponds to the one Terraform-
+  provisioned data disk (`huaweicloud_evs_volume`) - whether the system
+  disk is also being counted (and just happened not to exist separately
+  in this test) or is silently excluded from the total was not isolated
+  and confirmed either way.
+- **Instance-security-setting caveat**: the real-PDI test's cross-scope
+  `GlideRecord` write (`disks`/`disks_size`) was auto-granted by this
+  sandbox instance's cross-scope privilege settings, logged as `... was
+  granted and added to ... cross scope privileges`. A more locked-down
+  instance might not auto-grant this and could require an admin to
+  manually approve the privilege first (**System Applications > Cross
+  Scope Access** or similar) before `_updateEcsDiskFields()`'s writes
+  succeed - not yet confirmed either way on a stricter instance.
+
 ## `servicenow/discovery/HuaweiECSDiscovery.js` still works standalone
 
 If you don't need multi-account/region support, `new
